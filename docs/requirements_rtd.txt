@@ -1,0 +1,15 @@
+mock
+pandas>=0.20
+bottleneck
+numpy
+numexpr
+matplotlib
+scipy
+scikit-learn
+seaborn
+traits
+nbformat
+python-dateutil
+statsmodels
+fcsparser
+fcswrite

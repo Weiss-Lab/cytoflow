@@ -1,8 +1,13 @@
 #CytoFlow
 ##Python tools for quantitative, reproducible flow cytometry analysis
 
-Welcome to a different style of flow cytometry analysis.  For a quick demo,
-check out [an example IPython notebook](http://nbviewer.ipython.org/github/bpteague/cytoflow/blob/master/docs/examples/Basic%20Cytometry.ipynb)
+Welcome to a different style of flow cytometry analysis.  Take a look at some example [Jupyter](http://jupyter.org/) notebooks:
+
+* [Basic flow cytometry analysis](https://github.com/bpteague/cytoflow/blob/master/docs/examples-basic/Basic%20Cytometry.ipynb)
+* [An small-molecule induction curve with yeast](https://github.com/bpteague/cytoflow/blob/master/docs/examples-basic/Yeast%20Dose%20Reponse.ipynb)
+* [Data-driven gating with gaussian mixture models](https://github.com/bpteague/cytoflow/blob/master/docs/examples-basic/Machine%20Learning.ipynb)
+* [Reproduced some analysis from a published paper](https://github.com/bpteague/cytoflow-examples/blob/master/kiani/Kiani%20Nature%20Methods%202014.ipynb)
+* [Calibrated flow cytometry in MEFLs](https://github.com/bpteague/cytoflow-examples/blob/master/tasbe/TASBE%20Workflow.ipynb)
 
 ### What's wrong with other packages?  
 
@@ -23,6 +28,13 @@ something existing packages don't handle gracefully.
 ### What's different about CytoFlow?
 
 A few things.
+
+* **Free and open-source.**  Use the software free-of-charge; modify it to
+  suit your own needs, then contribute your changes back so the rest of the
+  community can benefit from them.
+
+* Provides both **Python modules** (relatively complete) and a 
+  **point-and-click interface** (still in development) 
 
 * An emphasis on **metadata**.  CytoFlow assumes that you are measuring
   fluorescence on several samples that were treated differently: either
@@ -53,40 +65,59 @@ A few things.
   users feel right at home.)
   
 * **Extensible.**  Adding a new analysis module is simple; the interface to
-  implement is only four functions.
+  implement is only two or three functions.
 
-* **Statistically sound.** Ready access to useful data-driven tools for
+* **Quantitative and statistically sound.** Ready access to useful data-driven tools for
   analysis, such as fitting 2-dimensional Gaussians for automated gating
   and mixture modeling.
+
+#### Note: this is still beta software!  Caveat emptor!
+  
+### Installation
+
+**If you just want the point-and-click version (not the Python modules), you can install it from http://bpteague.github.io/cytoflow/
+
+See the [installation notes](http://cytoflow.readthedocs.org/en/latest/INSTALL.html) on [ReadTheDocs](http://cytoflow.readthedocs.org/).  Installation has been tested
+on Linux (Ubuntu Trusty), Windows (x86_64) and Mac.
+
+### Documentation
+
+There is some basic documentation at [ReadTheDocs](http://cytoflow.readthedocs.org/).
+Perhaps of most use is the [module index](http://cytoflow.readthedocs.org/en/latest/py-modindex.html).
+The example [Jupyter](http://jupyter.org/) notebooks, above, demonstrate how the package
+is intended to be used interactively.
 
 ### Required packages
 
 These are all in the `setuptools` spec.
 
-For the core `cytotools` library, you need the following Python packages:
+For the core `cytoflow` library, you need the following Python packages:
 ```
-python >= 2.7
-pandas >= 0.15.0
-numexpr >= 2.1
-seaborn >= 0.5.0
-traits >= 4.0
-FlowCytometryTools  >= 0.4.0
+python >= 3.4
+pandas >= 0.21.1
+numpy >= 1.11.3
+numexpr >= 2.6.4
+matplotlib >= 1.5.1, <= 1.5.3
+scipy >= 1.0.0
+scikit-learn >= 0.19.1
+seaborn >= 0.8.1
+traits >= 4.6.0
+nbformat >= 4.2.0
+python-dateutil >= 2.6.0
+statsmodels >= 0.8.0
+fcsparser >= 0.1.3
 ```
 
 For the GUI, you additionally need:
 ```
-pyface >= 4.0
-envisage >= 4.0
-pyqt >= 4.10 -- this must be installed separately!
+faulthandler >= 2.4
+pyface == 5.1.0
+envisage >= 4.6
+pyqt >= 4.10 -- this must be installed separately!  it's not available through PyPI!
 ```
 
 Note that many of these packages have additional dependencies, including
-but not limited to `matplotlib`, `numpy`, `traitsui`, `decorator`, etc.
+but not limited to `traitsui`, `decorator`, etc.
 Everything except PyQT should be a well well-behaved PyPI package; you should be
 able to install all the above with `pip install` or the Canopy package manager.
-
-**Please note:** I am a Linux user, and installing these packages is quite easy 
-for me.  It may be harder for Mac and Windows users; please write an 
-install guide to help those that come after!
-
 

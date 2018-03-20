@@ -1,58 +1,68 @@
+#!/usr/bin/env python3.4
+# coding: latin-1
+
+# (c) Massachusetts Institute of Technology 2015-2017
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 """
 Created on Feb 11, 2015
 
 @author: brian
 """
 
-from traits.etsconfig.api import ETSConfig
-ETSConfig.toolkit = 'qt4'
+# from traits.etsconfig.api import ETSConfig
+# ETSConfig.toolkit = 'qt4'
 
-import os.path
+import os.path, webbrowser
 
-from traits.api import Instance, List, Bool, on_trait_change
-from pyface.tasks.api import Task, TaskLayout, PaneItem
-from pyface.tasks.action.api import SMenu, SMenuBar, SToolBar, TaskAction
-from pyface.api import FileDialog, OK, ImageResource, AboutDialog
+from traits.api import Instance, List, on_trait_change, Unicode
+from pyface.tasks.api import Task, TaskLayout, PaneItem, VSplitter
+from pyface.tasks.action.api import SMenu, SMenuBar, SToolBar, TaskAction, TaskToggleGroup
+from pyface.api import FileDialog, ImageResource, AboutDialog, information, confirm, OK, YES, NO, ConfirmationDialog
 from envisage.api import Plugin, ExtensionPoint, contributes_to
 from envisage.ui.tasks.api import TaskFactory
-from flow_task_pane import FlowTaskPane
-from cytoflowgui.workflow_pane import WorkflowDockPane
-from cytoflowgui.view_pane import ViewDockPane
-from cytoflowgui.workflow import Workflow
 
+# from cytoflowgui.flow_task_pane import FlowTaskPane
+from cytoflowgui.workflow_pane import WorkflowDockPane
+from cytoflowgui.view_pane import ViewDockPane, PlotParamsPane
+from cytoflowgui.help_pane import HelpDockPane
+from cytoflowgui.workflow import Workflow
 from cytoflowgui.op_plugins import IOperationPlugin, ImportPlugin, OP_PLUGIN_EXT
 from cytoflowgui.view_plugins import IViewPlugin, VIEW_PLUGIN_EXT
 from cytoflowgui.workflow_item import WorkflowItem
+from cytoflowgui.util import DefaultFileDialog
+from cytoflowgui.serialization import save_yaml, load_yaml, save_notebook
 
-
-from util import UniquePriorityQueue
-import threading
-import pickle as pickle
-
-# setup the worker thread
-def update_model(flag, lock, to_update):
-    while flag.wait():
-        flag.clear()
-        while not to_update.empty():
-            with lock:
-                prio, wi = to_update.get_nowait()
-            wi.update()
-
+from cytoflowgui.mailto import mailto
 
 class FlowTask(Task):
     """
     classdocs
     """
     
-    id = "edu.mit.synbio.cytoflow.flow_task"
+    id = "edu.mit.synbio.cytoflowgui.flow_task"
     name = "Cytometry analysis"
     
     # the main workflow instance.
-    # THIS IS WHERE IT'S INITIALLY INSTANTIATED (note the args=())
-    model = Instance(Workflow, args = ())
-    
+    model = Instance(Workflow)
+        
     # the center pane
-    view = Instance(FlowTaskPane)
+    workflow_pane = Instance(WorkflowDockPane)
+    view_pane = Instance(ViewDockPane)
+    help_pane = Instance(HelpDockPane)
+    plot_params_pane = Instance(PlotParamsPane)
     
     # plugin lists, to setup the interface
     op_plugins = List(IOperationPlugin)
@@ -68,16 +78,23 @@ class FlowTask(Task):
                               TaskAction(name='Save As...',
                                          method='on_save_as',
                                          accelerator='Ctrl+e'),
-                              TaskAction(name='Export...',
+                              TaskAction(name='Save Plot...',
                                          method='on_export',
                                          accelerator='Ctrl+x'),
-                              TaskAction(name='Preferences...',
-                                         method='on_prefs',
-                                         accelerator='Ctrl+P'),
+                              TaskAction(name='Export Jupyter notebook...',
+                                         method='on_notebook',
+                                         accelerator='Ctrl+I'),                              
+#                               TaskAction(name='Preferences...',
+#                                          method='on_prefs',
+#                                          accelerator='Ctrl+P'),
                               id='File', name='&File'),
-                        SMenu(TaskAction(name='About...',
-                                         method='on_about',
-                                         accelerator="Ctrl+A"),
+                        SMenu(TaskToggleGroup(),
+#                               TaskWindowToggleGroup(),
+                              id = 'View', name = '&View'),
+                        SMenu(TaskAction(name = 'Report a problem....',
+                                         method = 'on_problem'),
+                              TaskAction(name='About...',
+                                         method='on_about'),
                               id="Help", name ="&Help"))
     
     tool_bars = [ SToolBar(TaskAction(method='on_new',
@@ -93,381 +110,438 @@ class FlowTask(Task):
                                       tooltip='Save the current file',
                                       image=ImageResource('save')),
                            TaskAction(method='on_export',
-                                      name = "Export",
-                                      tooltip='Export the current plot',
+                                      name = "Save Plot",
+                                      tooltip='Save the current plot',
                                       image=ImageResource('export')),
-                           TaskAction(method='on_prefs',
-                                      name = "Prefs",
-                                      tooltip='Preferences',
-                                      image=ImageResource('prefs')),
+                           TaskAction(method='on_notebook',
+                                       name='Notebook',
+                                       tooltip="Export to an Jupyter notebook...",
+                                       image=ImageResource('ipython')),
+                           TaskAction(method = "on_calibrate",
+                                      name = "Calibrate FCS...",
+                                      tooltip = "Calibrate FCS files",
+                                      image = ImageResource('tasbe')),
+                           TaskAction(method = 'on_problem',
+                                      name = "Report a bug...",
+                                      tooltib = "Report a bug",
+                                      image = ImageResource('bug')),
+#                            TaskAction(method='on_prefs',
+#                                       name = "Prefs",
+#                                       tooltip='Preferences',
+#                                       image=ImageResource('prefs')),
                            image_size = (32, 32))]
     
-    # are we debugging?  ie, do we need a default setup?
-    debug = Bool
-    
-    worker = Instance(threading.Thread)
-    to_update = Instance(UniquePriorityQueue, ())
-    worker_flag = Instance(threading.Event, args = ())
-    worker_lock = Instance(threading.Lock, args = ())
+    # the file to save to if the user clicks "save" and has already clicked
+    # "open" or "save as".
+    filename = Unicode
         
-    def initialized(self):
-
-        # make sure that when the result changes we get notified
-        # can't use a static notifier because selected.result gets updated
-        # on the worker thread, but we need to dispatch on the UI thread
-        self.model.on_trait_change(self._result_updated, 
-                                   "selected:result",
-                                   dispatch = 'ui')
-
-            
     def activated(self):
-        # add an import plugin
-        plugin = ImportPlugin()
-        wi = WorkflowItem(task = self)
-        wi.operation = plugin.get_operation()
-
-        self.model.workflow.append(wi)
-        self.model.selected = wi
+        
+        # if we're coming back from the TASBE task, re-load the saved
+        # workflow
+        if self.model.backup_workflow:
+            self.model.workflow = self.model.backup_workflow
+            self.model.backup_workflow = []
+            return
+        
+        # else, set up a new workflow
+        
+        # add the import op
+        self.add_operation(ImportPlugin().id) 
+        self.model.selected = self.model.workflow[0]
         
         # if we're debugging, add a few data bits
-        if self.debug:
+        if self.model.debug:
             from cytoflow import Tube
-                     
-            wi.operation.conditions["Dox"] = "log"
-        
-            tube1 = Tube(file = "../cytoflow/tests/data/Plate01/CFP_Well_A4.fcs",
-                         conditions = {"Dox" : 0.1})
-        
-            tube2 = Tube(file = "../cytoflow/tests/data/Plate01/RFP_Well_A3.fcs",
-                         conditions = {"Dox" : 1.0})
-        
-            wi.operation.tubes.append(tube1)
-            wi.operation.tubes.append(tube2)
                         
-            self.add_operation('edu.mit.synbio.cytoflowgui.op_plugins.hlog')
-            self.model.selected.operation.channels = ["V2-A", "Y2-A"]
-            self.model.selected.operation.name = "H"
-              
-            self.add_operation('edu.mit.synbio.cytoflowgui.op_plugins.threshold')
-            self.model.selected.operation.channel = "Y2-A"
-            self.model.selected.operation.threshold = 2000
-            self.model.selected.operation.name = "T"        
-    
-    def prepare_destroy(self):
-        self.model = None
+            import_op = self.model.workflow[0].operation
+            import_op.conditions = {"Dox" : "float", "Well" : "category"}
+         
+            tube1 = Tube(file = "../cytoflow/tests/data/Plate01/CFP_Well_A4.fcs",
+                         conditions = {"Dox" : 0.0, "Well" : 'A'})
+         
+            tube2 = Tube(file = "../cytoflow/tests/data/Plate01/RFP_Well_A3.fcs",
+                         conditions = {"Dox" : 10.0, "Well" : 'A'})
+             
+            tube3 = Tube(file = "../cytoflow/tests/data/Plate01/CFP_Well_B4.fcs",
+                         conditions = {"Dox" : 0.0, "Well" : 'B'})
+         
+            tube4 = Tube(file = "../cytoflow/tests/data/Plate01/RFP_Well_A6.fcs",
+                         conditions = {"Dox" : 10.0, "Well" : 'B'})
+         
+            import_op.tubes = [tube1, tube2, tube3, tube4]
+            
+#             from cytoflowgui.op_plugins import ChannelStatisticPlugin
+
+#             self.add_operation(ChannelStatisticPlugin().id)
+#             stat_op = self.model.workflow[1].operation
+#             stat_op.name = "Test"
+#             stat_op.channel = "Y2-A"
+#             stat_op.statistic_name = "Geom.Mean"
+#             stat_op.by = ["Dox", "Well"]
+#             self.model.selected = self.model.workflow[1]
+                    
+        self.model.modified = False
     
     def _default_layout_default(self):
-        return TaskLayout(left = PaneItem("edu.mit.synbio.workflow_pane"),
-                          right = PaneItem("edu.mit.synbio.view_traits_pane"))
+        return TaskLayout(left = VSplitter(PaneItem("edu.mit.synbio.cytoflowgui.workflow_pane"),
+                                           PaneItem("edu.mit.synbio.cytoflowgui.help_pane")),
+                          right = VSplitter(PaneItem("edu.mit.synbio.cytoflowgui.view_traits_pane"),
+                                            PaneItem("edu.mit.synbio.cytoflowgui.params_pane")),
+                          top_left_corner = 'left',
+                          bottom_left_corner = 'left',
+                          top_right_corner = 'right',
+                          bottom_right_corner = 'right')
      
-    def create_central_pane(self):
-        self.view = FlowTaskPane(model = self.model)
-        return self.view
+    def create_central_pane(self):       
+        return self.application.plot_pane
      
     def create_dock_panes(self):
-        return [WorkflowDockPane(model = self.model, 
-                                 plugins = self.op_plugins,
-                                 task = self), 
-                ViewDockPane(plugins = self.view_plugins,
-                             task = self)]
+        self.workflow_pane = WorkflowDockPane(model = self.model, 
+                                              plugins = self.op_plugins,
+                                              task = self)
+        
+        self.view_pane = ViewDockPane(model = self.model,
+                                      plugins = self.view_plugins,
+                                      task = self)
+        
+        self.help_pane = HelpDockPane(view_plugins = self.view_plugins,
+                                      op_plugins = self.op_plugins,
+                                      task = self)
+        
+        self.plot_params_pane = PlotParamsPane(model = self.model,
+                                               task = self)
+        
+        return [self.workflow_pane, self.view_pane, self.help_pane, self.plot_params_pane]
         
     def on_new(self):
+        if self.model.modified:
+            ret = confirm(parent = None,
+                          message = "Are you sure you want to discard the current workflow?",
+                          title = "Clear workflow?")
+            
+            if ret != YES:
+                return
+            
+        self.filename = ""
+        self.window.title = "Cytoflow"
+        
+        # clear the workflow
         self.model.workflow = []
         
-        # add an import plugin
-        plugin = ImportPlugin()
-        wi = WorkflowItem(task = self)
-        wi.operation = plugin.get_operation()
-
-        self.model.workflow.append(wi)
-        self.model.selected = wi
+        # add the import op
+        self.add_operation(ImportPlugin().id) 
+        
+        # and select the operation
+        self.model.selected = self.model.workflow[0]
+        
+        self.model.modified = False
+     
         
     def on_open(self):
-        """ Shows a dialog to open a file.
+        """ 
+        Shows a dialog to open a file.
         """
-        dialog = FileDialog(parent=self.window.control, 
+        
+        if self.model.modified:
+            ret = confirm(parent = None,
+                          message = "Are you sure you want to discard the current workflow?",
+                          title = "Clear workflow?")
+            
+            if ret != YES:
+                return
+        
+        dialog = FileDialog(parent = self.window.control, 
                             action = 'open',
-                            wildcard='*.flow')
+                            wildcard = (FileDialog.create_wildcard("Cytoflow workflow", "*.flow") + ';' +  #@UndefinedVariable  
+                                        FileDialog.create_wildcard("All files", "*"))) #@UndefinedVariable  
         if dialog.open() == OK:
             self.open_file(dialog.path)
+            self.filename = dialog.path
+            self.window.title = "Cytoflow - " + self.filename
             
-    def open_file(self, path):
-        f = open(path, 'r')
-        unpickler = pickle.Unpickler(f)
-        new_model = unpickler.load()
 
-        # update the link back to the controller (ie, self)
-        for wi in new_model.workflow:
-            wi.task = self
+    def open_file(self, path):
+        
+        new_workflow = load_yaml(path)
+        
+        # a few things to take care of when reloading
+        for wi_idx, wi in enumerate(new_workflow):
             
-            # and set up the view handlers
-            for view in wi.views:
-                view.handler = view.handler_factory(model = view, wi = wi)
-                  
+            # get wi lock
+            wi.lock.acquire()
+            
+            # clear the wi status
+            wi.status = "loading"
+
+            # re-link the linked list.
+            if wi_idx > 0:
+                wi.previous_wi = new_workflow[wi_idx - 1]
+            
+            if wi_idx < len(new_workflow) - 1:
+                wi.next_wi = new_workflow[wi_idx + 1]
+
+
         # replace the current workflow with the one we just loaded
         
-        if False:
-            from event_tracer import record_events 
+        if False:  # for debugging the loading of things
+            from .event_tracer import record_events 
             
             with record_events() as container:
-                self.model.workflow[:] = new_model.workflow
-                self.model.selected = new_model.selected
-                
+                self.model.workflow = new_workflow
+                                
             container.save_to_directory(os.getcwd()) 
         else:
-            self.model.workflow[:] = new_model.workflow
-            self.model.selected = new_model.selected   
-        
-        wi = self.model.workflow[0]
-        while True:
-            wi.valid = "invalid"
-            with self.worker_lock:
-                self.to_update.put_nowait((self.model.workflow.index(wi), wi))
-            if wi.next:
-                wi = wi.next
-            else:
-                break
+            self.model.workflow = new_workflow
+            self.model.modified = False
             
-        # check to see if we have a worker thread around
-        if not self.worker or not self.worker.is_alive():
-            self.worker = threading.Thread(target = update_model, 
-                                           args = (self.worker_flag, 
-                                                   self.worker_lock,
-                                                   self.to_update))
-            self.worker.daemon = True
-            self.worker.start()
-            
-        # start the worker thread processing
-        with self.worker_lock:
-            if not self.to_update.empty():
-                self.worker_flag.set()
+        for wi in self.model.workflow:
+            wi.lock.release()
+
         
     def on_save(self):
-        """ Shows a dialog to open a file.
-        """
-        dialog = FileDialog(parent=self.window.control,
-                            action = 'save as', 
-                            wildcard='*.flow')
-        if dialog.open() == OK:
-            self.save_file(dialog.path)
+        """ Save the file to the previous filename  """
+        if self.filename:
+            save_yaml(self.model.workflow, self.filename)
+            self.model.modified = False
+        else:
+            self.on_save_as()
             
     def on_save_as(self):
-        pass
-            
-    def save_file(self, path):
-        # TODO - error handling
-        f = open(path, 'w')
-        pickler = pickle.Pickler(f, 0)  # text protocol for now
-        pickler.dump(self.model)
+        dialog = DefaultFileDialog(parent = self.window.control,
+                                   action = 'save as', 
+                                   default_suffix = "flow",
+                                   wildcard = (FileDialog.create_wildcard("Cytoflow workflow", "*.flow") + ';' + #@UndefinedVariable  
+                                               FileDialog.create_wildcard("All files", "*")))                    #@UndefinedVariable  
         
-    def on_export(self):
-        """
-        Shows a dialog to export a file
-        """
-        dialog = FileDialog(parent = self.window.control,
-                            action = 'save as')
         if dialog.open() == OK:
-            self.view.export(dialog.path)
+            save_yaml(self.model.workflow, dialog.path)
+            self.filename = dialog.path
+            self.model.modified = False
+            self.window.title = "Cytoflow - " + self.filename
+            
+    @on_trait_change('model.modified', post_init = True)
+    def _on_model_modified(self, val):
+        if val:
+            if not self.window.title.endswith("*"):
+                self.window.title += "*"
+        else:
+            if self.window.title.endswith("*"):
+                self.window.title = self.window.title[:-1]
+        
+
+    def on_export(self):
+        task = next(x for x in self.window.tasks if x.id == 'edu.mit.synbio.cytoflowgui.export_task')
+        self.window.activate_task(task)        
+
+
+    def on_calibrate(self):
+        task = next(x for x in self.window.tasks if x.id == 'edu.mit.synbio.cytoflowgui.tasbe_task')
+        self.window.activate_task(task)
+        
+            
+    def on_notebook(self):
+        """
+        Shows a dialog to export the workflow to an Jupyter notebook
+        """
+
+        dialog = FileDialog(parent = self.window.control,
+                            action = 'save as',
+                            default_suffix = "ipynb",
+                            wildcard = (FileDialog.create_wildcard("Jupyter notebook", "*.ipynb") + ';' + #@UndefinedVariable  
+                                        FileDialog.create_wildcard("All files", "*")))  # @UndefinedVariable
+        if dialog.open() == OK:
+            save_notebook(self.model.workflow, dialog.path)
+
     
     def on_prefs(self):
         pass
     
-    def on_about(self):
+    def on_problem(self):
+
+        log = str(self._get_package_versions()) + "\n" + self.application.application_log.getvalue()
+        
+        msg = "The best way to report a problem is send an application log to " \
+              "the developers.  You can do so by either sending us an email " \
+              "with the log in it, or saving the log to a file and filing a " \
+              "new issue on GitHub at " \
+              "https://github.com/bpteague/cytoflow/issues/new" 
+        
+        dialog = ConfirmationDialog(message = msg,
+                                    informative = "Which would you like to do?",
+                                    yes_label = "Send an email...",
+                                    no_label = "Save to a file...")
+                
+        if dialog.open() == NO:
+            dialog = DefaultFileDialog(parent = self.window.control,
+                                       action = 'save as', 
+                                       default_suffix = "log",
+                                       wildcard = (FileDialog.create_wildcard("Log files", "*.log") + ';' + #@UndefinedVariable  
+                                                   FileDialog.create_wildcard("All files", "*")))                    #@UndefinedVariable  
+            
+            if dialog.open() == OK:
+                with open(dialog.path, 'w') as f:
+                    f.write(log)
+                  
+                webbrowser.open_new_tab("https://github.com/bpteague/cytoflow/issues/new")
+                  
+            return
+        
+        information(None, "I'll now try to open your email client and create a "
+                    "new message to the developer.  Debugging logs are "
+                    "attached.  Please fill out the template bug report and " 
+                    "send -- thank you for reporting a bug!")
+
+        log = self.application.application_log.getvalue()
+        
+        versions = ["{0} {1}".format(key, value) for key, value in self._get_package_versions().items()]
+
+        body = """
+Thank you for your bug report!  Please fill out the following template.
+
+PLATFORM (Mac, PC, Linux, other):
+
+OPERATING SYSTEM (eg OSX 10.7, Windows 8.1):
+
+SEVERITY (Critical? Major? Minor? Enhancement?):
+
+DESCRIPTION:
+  - What were you trying to do?
+  - What happened?
+  - What did you expect to happen?
+  
+PACKAGE VERSIONS: {0}
+
+DEBUG LOG: {1}
+""".format(versions, log)
+
+        mailto("teague@mit.edu", 
+               subject = "Cytoflow bug report",
+               body = body)
+    
+    def _get_package_versions(self):
+    
+        import sys
         from cytoflow import __version__ as cf_version
-        from FlowCytometryTools import __version__ as fct_version
-        from GoreUtilities import __version__ as gu_version
-        from pandas.version import version as pd_version
-        from numpy.version import version as np_version
-        from numexpr import version as numexp_version
+        from fcsparser import __version__ as fcs_version
+        from pandas import __version__ as pd_version
+        from numpy import __version__ as np_version
+        from numexpr import __version__ as nxp_version
+        from bottleneck import __version__ as btl_version
         from seaborn import __version__ as sns_version
         from matplotlib import __version__ as mpl_version
-        from pyface import __version__ as py_version
+        from scipy import __version__ as scipy_version
+        from sklearn import __version__ as skl_version
+        from statsmodels import __version__ as stats_version
+        from pyface import __version__ as pyf_version
         from envisage import __version__ as env_version
         from traits import __version__ as trt_version
         from traitsui import __version__ as trt_ui_version
-
-        text = ["<b>Cytoflow {0}</b>".format(cf_version),
-                "<p>",
-                "FlowCytometryTools {0}".format(fct_version),
-                "GoreUtilities {0}".format(gu_version),
-                "pandas {0}".format(pd_version),
-                "numpy {0}".format(np_version),
-                "numexpr {0}".format(numexp_version),
-                "seaborn {0}".format(sns_version),
-                "matplotlib {0}".format(mpl_version),
-                "pyface {0}".format(py_version),
-                "envisage {0}".format(env_version),
-                "traits {0}".format(trt_version),
-                "traitsui {0}".format(trt_ui_version),
-                "Icons from the <a href=http://tango.freedesktop.org/>Tango Desktop Project</a>",
-                "Cuvette image from Wikimedia Commons user <a href=http://commons.wikimedia.org/wiki/File:Hellma_Large_cone_cytometry_cell.JPG>HellmaUSA</a>"]
-        dialog = AboutDialog(parent = self.window.control,
+        from yapf import __version__ as yapf_version
+        from nbformat import __version__ as nb_version
+        from yaml import __version__ as yaml_version
+        
+        return {"python" : sys.version,
+                "cytoflow" : cf_version,
+                "fcsparser" : fcs_version,
+                "pandas" : pd_version,
+                "numpy" : np_version,
+                "numexpr" : nxp_version,
+                "bottleneck" : btl_version,
+                "seaborn" : sns_version,
+                "matplotlib" : mpl_version,
+                "scipy" : scipy_version,
+                "scikit-learn" : skl_version,
+                "statsmodels" : stats_version,
+                "pyface" : pyf_version,
+                "envisage" : env_version,
+                "traits" : trt_version,
+                "traitsui" : trt_ui_version,
+                "nbformat" : nb_version,
+                "yapf" : yapf_version,
+                "yaml" : yaml_version}
+        
+        
+    def on_about(self):
+        versions = self._get_package_versions()
+        text = ["<b>Cytoflow {0}</b>".format(versions['cytoflow']),
+                "<p>"]
+        
+        ver_text = ["{0} {1}".format(key, value) for key, value in versions.items()]
+        
+        text.extend(ver_text)
+        
+        text.extend(["Icons from the <a href=http://tango.freedesktop.org>Tango Desktop Project</a>",
+                "<a href=https://thenounproject.com/search/?q=setup&i=14287>Settings icon</a> by Paulo Sa Ferreira from <a href=https://thenounproject.com>The Noun Project</a>",
+                "<a href=http://www.freepik.com/free-photos-vectors/background>App icon from Starline - Freepik.com</a>",
+                "Cuvette image from Wikimedia Commons user <a href=http://commons.wikimedia.org/wiki/File:Hellma_Large_cone_cytometry_cell.JPG>HellmaUSA</a>"])
+        
+        dialog = AboutDialog(text = text,
+                             parent = self.window.control,
                              title = "About",
                              image = ImageResource('cuvette'),
                              additions = text)
         dialog.open()
+        
+    @on_trait_change('model.selected', post_init = True)
+    def _on_select_op(self, selected):
+        if selected:
+            self.view_pane.enabled = (selected is not None)
+            self.view_pane.default_view = selected.default_view.id if selected.default_view else ""
+            self.view_pane.selected_view = selected.current_view.id if selected.current_view else ""
+            self.help_pane.help_id = selected.operation.id
+        else:
+            self.view_pane.enabled = False
+            
+    @on_trait_change('view_pane.selected_view', post_init = True)
+    def _on_select_view(self, view_id):
+        
+        if not view_id:
+            return
+        
+        # if we already have an instantiated view object, find it
+        try:
+            self.model.selected.current_view = next((x for x in self.model.selected.views if x.id == view_id))
+        except StopIteration:
+            # else make the new view
+            plugin = next((x for x in self.view_plugins if x.view_id == view_id))
+            view = plugin.get_view()
+            self.model.selected.views.append(view)
+            self.model.selected.current_view = view
+            
+        self.help_pane.help_id = view_id
     
     def add_operation(self, op_id):
         # first, find the matching plugin
         plugin = next((x for x in self.op_plugins if x.id == op_id))
         
-        # default to inserting at the end of the list if none selected
-        after = self.model.selected
-        if after is None:
-            after = self.model.workflow[-1]
+        # next, get an operation
+        op = plugin.get_operation()
         
-        idx = self.model.workflow.index(after)
+        # make a new workflow item
+        wi = WorkflowItem(operation = op,
+                          deletable = (op_id != 'edu.mit.synbio.cytoflowgui.op_plugins.import'))
         
-        wi = WorkflowItem(task = self)
-        wi.operation = plugin.get_operation()
-
-        wi.next = after.next
-        after.next = wi
-        wi.previous = after
-        if wi.next:
-            wi.next.previous = wi
-        self.model.workflow.insert(idx+1, wi)
-        
-        # set up the default view
-        wi.default_view = plugin.get_default_view(wi.operation)
-        if wi.default_view is not None:
-            wi.default_view.handler = \
-                wi.default_view.handler_factory(model = wi.default_view, wi = wi.previous)
+        # if the op has a default view, add it to the wi
+        try:
+            wi.default_view = op.default_view()
             wi.views.append(wi.default_view)
-
-        # select (open) the new workflow item
-        self.model.selected = wi
-        if wi.default_view:
             wi.current_view = wi.default_view
-            
-        # invalidate everything following
-        self.operation_parameters_updated()
+        except AttributeError:
+            pass
         
-    @on_trait_change("model:workflow[]")
-    def _on_remove_operation(self, obj, name, old, new):
-        if name == "workflow_items" and len(new) == 0 and len(old) > 0:
-            assert len(old) == 1
-            wi = old[0]
-            
-            if self.model.selected == wi:
-                self.model.selected = wi.previous
-            
-            wi.previous.next = wi.next
-            if wi.next:
-                wi.next.previous = wi.previous
-            
-            del wi.default_view
-            del wi.views
-            del wi
-
-            self.operation_parameters_updated()
-        
-    @on_trait_change("model:selected:operation:+")
-    def operation_parameters_updated(self): 
-        
-        # invalidate this workflow item and all the ones following it
-        wi = self.model.selected
-        while True:
-            wi.valid = "invalid"
-            with self.worker_lock:
-                self.to_update.put_nowait((self.model.workflow.index(wi), wi))
-            if wi.next:
-                wi = wi.next
-            else:
-                break
-            
-        # check to see if we have a worker thread around
-        if not self.worker or not self.worker.is_alive():
-            self.worker = threading.Thread(target = update_model, 
-                                           args = (self.worker_flag, 
-                                                   self.worker_lock,
-                                                   self.to_update))
-            self.worker.daemon = True
-            self.worker.start()
-            
-        # start the worker thread processing
-        with self.worker_lock:
-            if not self.to_update.empty():
-                self.worker_flag.set()
-              
-    def clear_current_view(self):
-        self.view.clear_plot()
-        
-    def set_current_view(self, view_id):
-        """
-        called by the view pane 
-        """
-        wi = self.model.selected
-        
-        if view_id == "default":
-            view_id = self.model.selected.default_view.id
-        
-        view = next((x for x in wi.views if x.id == view_id), None)
-        
-        if not view:
-            plugin = next((x for x in self.view_plugins if x.view_id == view_id))
-            view = plugin.get_view()
-            view.handler = view.handler_factory(model = view, wi = wi)
-            wi.views.append(view)
-        
-        wi.current_view = view
-        
-    @on_trait_change("model:selected.current_view")
-    def _current_view_changed(self, obj, name, old, new): 
-        
-        # we get notified if *either* the currently selected workflowitem
-        # *or* the current view changes.
-        
-        if name == 'selected':
-            new = new.current_view if new else None
-            old = old.current_view if old else None
-            
-        # remove the notifications from the old view
-        if old:
-            old.on_trait_change(self.view_parameters_updated, remove = True)
-            
-            # and if the old view was interactive, turn off its interactivity
-            # to remove the matplotlib event handlers
-            if "interactive" in old.traits():
-                old.interactive = False
-            
-        # whenever the view parameters change, we need to know so we can
-        # update the plot(s)
-        if new:
-            new.on_trait_change(self.view_parameters_updated)
-            
-            if self.model.selected and self.model.selected.is_plottable:
-                self.model.selected.plot(self.view)
-            else:
-                self.clear_current_view()
+        # figure out where to add it
+        if self.model.selected:
+            idx = self.model.workflow.index(self.model.selected) + 1
         else:
-            self.clear_current_view()
-
-    def _result_updated(self, obj, name, old, new):
-        print "result updated"
-        if self.model.selected and self.model.selected.is_plottable:
-            self.model.selected.plot(self.view)
-        else:
-            self.clear_current_view()
+            idx = len(self.model.workflow)
+             
+        # the add_remove_items handler takes care of updating the linked list
+        self.model.workflow.insert(idx, wi)
         
-    def view_parameters_updated(self, obj, name, new):
+        # and make sure to actually select the new wi
+        self.model.selected = wi
         
-        # i should be able to specify the metadata i want in the listener,
-        # but there's an odd interaction (bug) between metadata, dynamic 
-        # trait listeners and instance traits.
-        
-        if obj.trait(name).transient:
-            return
-        
-        print "view parameters updated: {0}".format(name)
-        wi = self.model.selected
-        if wi is None:
-            wi = self.model.workflow[-1]
-            
-        if wi.is_plottable:
-            wi.plot(self.view)
-        else:
-            self.clear_current_view()
         
 class FlowTaskPlugin(Plugin):
     """
@@ -479,12 +553,10 @@ class FlowTaskPlugin(Plugin):
     PREFERENCES_PANES = 'envisage.ui.tasks.preferences_panes'
     TASKS             = 'envisage.ui.tasks.tasks'
     
-    # these need to be declared in a Plugin instance; we pass them to h
+    # these need to be declared in a Plugin instance; we pass them to
     # the task instance thru its factory, below.
     op_plugins = ExtensionPoint(List(IOperationPlugin), OP_PLUGIN_EXT)
-    view_plugins = ExtensionPoint(List(IViewPlugin), VIEW_PLUGIN_EXT)
-    
-    debug = Bool(False)
+    view_plugins = ExtensionPoint(List(IViewPlugin), VIEW_PLUGIN_EXT)    
 
     #### 'IPlugin' interface ##################################################
 
@@ -505,15 +577,15 @@ class FlowTaskPlugin(Plugin):
     
     @contributes_to(PREFERENCES_PANES)
     def _get_preferences_panes(self):
-        from preferences import CytoflowPreferencesPane
+        from .preferences import CytoflowPreferencesPane
         return [CytoflowPreferencesPane]
 
     @contributes_to(TASKS)
     def _get_tasks(self):
-        return [TaskFactory(id = 'edu.mit.synbio.cytoflow.flow_task',
+        return [TaskFactory(id = 'edu.mit.synbio.cytoflowgui.flow_task',
                             name = 'Cytometry analysis',
                             factory = lambda **x: FlowTask(application = self.application,
                                                            op_plugins = self.op_plugins,
                                                            view_plugins = self.view_plugins,
-                                                           debug = self.debug,
+                                                           model = self.application.model,
                                                            **x))]

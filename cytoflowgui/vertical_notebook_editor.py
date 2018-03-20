@@ -1,10 +1,28 @@
+#!/usr/bin/env python3.4
+# coding: latin-1
+
+# (c) Massachusetts Institute of Technology 2015-2017
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 """
 Created on Mar 8, 2015
 
 @author: brian
 """
 
-
+# for local debugging
 if __name__ == '__main__':
     from traits.etsconfig.api import ETSConfig
     ETSConfig.toolkit = 'qt4'
@@ -21,20 +39,13 @@ from traits.trait_base import user_name_for
 from traitsui.ui_traits import AView
 from traitsui.qt4.editor import Editor
 
-from vertical_notebook import VerticalNotebook
+from .vertical_notebook import VerticalNotebook
 
 
 class _VerticalNotebookEditor(Editor):
     """ 
     Traits UI vertical notebook editor for editing lists of objects with traits.
     """
-
-    #-- Trait Definitions ----------------------------------------------------
-
-    # Is the notebook editor scrollable? This values overrides the default:
-    scrollable = True
-
-    #-- Private Traits -------------------------------------------------------
 
     # The currently selected notebook page object (or objects):
     selected_item = Any
@@ -56,7 +67,6 @@ class _VerticalNotebookEditor(Editor):
         factory = self.factory
         self.notebook = VerticalNotebook(**factory.get('multiple_open',
                                                        'delete',
-                                                       'scrollable', 
                                                        'double_click')).set(editor=self)
         self.control = self.notebook.create_control(parent)
 
@@ -187,6 +197,12 @@ class _VerticalNotebookEditor(Editor):
         if page_icon[0:1] == '.':
             if getattr(obj, page_icon[1:], Undefined) is not Undefined:
                 page.register_icon_listener(obj, page_icon[1:])
+                
+        # Is the page deletable?
+        page_deletable = self.factory.page_deletable
+        if page_deletable[0:1] == '.':
+            if getattr(obj, page_deletable[1:], Undefined) is not Undefined:
+                page.register_deletable_listener(obj, page_deletable[1:])
 
         # Save the Traits UI in the page so it can dispose of it later:
         page.ui = ui
@@ -217,9 +233,6 @@ class VerticalNotebookEditor(BasicEditorFactory):
     # Include a "delete" button?
     delete = Bool(False)
 
-    # Should the notebook be scrollable?
-    scrollable = Bool(False)
-
     # List member trait to read the notebook page name from
     page_name = Str
 
@@ -231,6 +244,11 @@ class VerticalNotebookEditor(BasicEditorFactory):
     # The type of this trait is toolkit-specific; for example, the pyface.qt
     # type is a QtGui.QStyle.StandardPixmap
     page_icon = Str
+    
+    # List member trait to specify whether the page is deletable
+    # If the "delete" trait, above, is True, then this list member
+    # trait will enable or disable the "delete" button
+    page_deletable = Str
 
     # Name of the view to use for each page:
     view = AView
@@ -271,7 +289,6 @@ if __name__ == '__main__':
                                                    page_description='.trait2',
                                                    page_icon='.icon',
                                                    view='traits_view',
-                                                   scrollable=True,
                                                    multiple_open=False)
                      )
             ),

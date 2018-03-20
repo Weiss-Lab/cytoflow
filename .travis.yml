@@ -1,38 +1,131 @@
-language: python
+language: generic
 
-sudo: false
+env:
+  - MPLBACKEND=Agg
+
+matrix:
+  include:
+    - os: linux
+      sudo: false
+      dist: trusty
+      
+    - os: osx
+      osx_image: xcode6.4
 
 addons:
   apt:
+    sources:
+      - sourceline: 'deb http://mirrors.mit.edu/ubuntu/ trusty-backports main restricted universe multiverse'
     packages:
-    - g++
-    - gfortran
-    - swig
-    - python-qt4
-    - libblas-dev
-    - liblapack-dev
-    - libatlas-dev
-
-python:
-- '2.7'
+      - g++
+      - gfortran
+      - swig3.0
+      - python3-pyqt4
+      - libblas-dev
+      - liblapack-dev
+      - libatlas-dev
 
 before_install:
-- pip install --quiet --upgrade pip
+
+  # make sure distutils can find swig
+  - if [[ "$TRAVIS_OS_NAME" == "linux" ]]; then ln -s `which swig3.0` ./swig; export PATH=`pwd`:$PATH; fi
+
+  # setup anaconda 
+  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew update; fi
+  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install swig@3.04; fi
+  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then export PATH="/usr/local/opt/swig@3.04/bin:$PATH"; fi
+  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then wget https://repo.continuum.io/miniconda/Miniconda3-latest-MacOSX-x86_64.sh -O miniconda.sh; else wget http://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh; fi
+
+  - chmod +x miniconda.sh
+  - ./miniconda.sh -b
+  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then export PATH=/Users/travis/miniconda3/bin:$PATH; fi
+  - if [[ "$TRAVIS_OS_NAME" != "osx" ]]; then export PATH=/home/travis/miniconda3/bin:$PATH; export LD_LIBRARY_PATH=/home/travis/miniconda3/envs/py35/lib; fi
+  - conda update --yes conda
 
 install:
-- pip install --quiet --upgrade numpy
-- python setup.py develop
 
-script: nosetests cytoflow
+  - conda create --yes --quiet --name=py35 python=3.5 nomkl
+  - source activate py35
+  - python --version
+  - conda install --yes --quiet --file=packaging/conda-requirements.txt
+  - conda install --yes --quiet pip mock
+  - pip install nose2 
+  - pip install "sphinx==1.6.7"
+  - pip install "pyinstaller==3.3.1"
+  
+  # the PyYAML wheels are busted.  install from source instead.
+  - pip install --no-use-wheel pyyaml
+
+  - python setup.py develop 
+
+before_script:
+  - if [[ "$TRAVIS_OS_NAME" != "osx" ]]; then export DISPLAY=:99.0; sh -e /etc/init.d/xvfb start; sleep 3; fi
+
+script: nose2 -c packaging/nose2.cfg -s cytoflow/tests
+
+after_success:
+
+  - python setup.py build_sphinx 
+  - python setup.py bdist_wheel
+  - if [[ "$TRAVIS_OS_NAME" != "osx" ]]; then python setup.py sdist; fi
+  - python setup.py build_sphinx -b embedded_help
+
+  - pyinstaller --log-level=DEBUG packaging/pyinstaller.spec
+  - pyi-archive_viewer -l dist/cytoflow
+  - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then cd dist/; zip -r cytoflow.macos.zip Cytoflow.app/; rm -rf Cytoflow.app cytoflow; cd ..; fi
+  - if [[ "$TRAVIS_OS_NAME" != "osx" ]]; then mv dist/cytoflow dist/cytoflow-linux.x86_64; fi
+  - ls -al dist/*
+  - python3 -c 'import sys, packaging; print(sys.modules["packaging"])'
+
 
 deploy:
-  provider: pypi
-  user: Brian.Teague
-  password:
-    secure: "VmIEqabFmyfTFL3rI4Kx0N8DNcPqWo05adGGFR1D1ZO0Y36NODBWueyZ2lRZA/5GIW3dxDpwoQsNG6ZmnmbO76Shf+PAe6LoFmaVFPYV4azt+PlheTM6K7Ggsj/8RDE9Rn+yaodLFMPFlWYbhGnqiBIF+L2TcGfCR4uUP74BAIiHKI6ie+qW7sTdGIdKf6Ii3I0ph12mn42tcEabet6pAjVYwZ+GhpRjSrN1kv1wR/h3ROImaKUAXvWxLIZQM4+voYUV+tg0X5/Z3yCNgaHG+RbnPK+hLIiUQyG+IupnJ+i5yJKVW4JgOHt57EkpIsmgQ24Rc16PPg7CY1iUuReAt1kkDWMBEx6q8Kjv+nt8LEZuLCfgBD71/9vstWFlPvcPg0vKVOxTxWQfp2UFFOGmi1KQfu22UHE49GKKH8BBKisstxoyWEytlJ0z2hCu8ZSRQwXZ+P4zrQMKcidv52ftzMAYc0c68091FoZ/Ce1mrBpvDgSXx2uM1oGQKjYQZzRbrV+FLdF8R46yge1yibm2lw8VqFv/WDkvOpY5DoQW1QOU1SdS/T7ln3K8PNChQPkP6gp5gJ7SrJYMZfrB2QEXucDmv1Ma4X5Dl/LyTm/yeE+YQerCyYFBFRgx3xOyrgcRgX8f1u57jFCSGOhaJ6DCdJugySPjEEceCADBwUV2STA="
-  on:
-    repo: bpteague/cytoflow
-    branch: master
-    tags: true
-  server: https://pypi.python.org/pypi
-  skip_cleanup: true
+  - provider: releases
+    api_key: 
+      secure: "EiLTgjYPi2qgQWhxZzljvi8rLpJg7Seu6LQXAxqeQFCthkonsyzr+Wg44jLQfVKo5Y4KjiPN/QXbpmfvjT2wlTE1qhEwu8q9hDWhXtaHoQ8nDMEABVosvNWbCZc5xT8qSydglmtK2gkUfW7wICkgFEw7Tp7eOXN0XQOMph5LXDdnR0vrk7qR9TU3Ld3pbbCEliA02SZi0a2Es9+S72dwIJhjkhNlrVc0mqwZ5q3SAFGD+Txol/ZydWijN2iuvhDGzemOCAPi+3lyZvc7kcUSkdTNWjO8pwVn7MiYx+JDMsKxEL0yHLX0425TJMT+ptpNio6k+xk1Zmn2PmHLyWC+JcBfXG0qnvOjaVQ61hssSgb+ku3oDxO5UJpEmPOOP6A/f6x+PZPo9nm4s+2vU6dHH4YU/5CjZPF0/GuNBTYL5jJengATNVq2TQ368FPu+lUuYkUyrH2+jFLTprvE7iaEJAebb7KMiz5wBqn12uoybhKshV8v6PjXXHjDlIu7iDEnhZlY9pdhmFCNEmMLkvjzaUGjLBPG/WbeIiUuDyEt9xk7qP99fij8olJYxCDTa7JglZXytNj/VSo2BR+kY/cPPJimR4VX+U/82UVs/D3i3vmBf3/yf/vhRXGkozo616Vt2O8TS3xpj6LUNdOydiOPfIj+zAAu1NYeedZjkKpiy1M="
+    file_glob: true
+    file: "dist/*"
+    skip_cleanup: true
+    on: 
+      branch: master
+      tags: true
+      
+  - provider: bintray
+    file: packaging/bintray.json
+    user: bpteague
+    key:
+      secure: "ign6ESQuyEYnp1LJ0i/S+h2ZXtEP5P89EbmW7nRmFK1vvBAgD72sVI2y6tji+sErEErIke/ERZHRtLh4q8LvZT4J7LhJradRGYXa6Y1S56wb/bn2xRS1lKXJz3HUD+WxqYD3ZZ+q7AEcD51TkDv6Bmo5hXlkyHEzATBRwZl7kC2GPIatCva+KWd1YB1kUBPvrhCvgn1fCE0Xzcdzf5EKu7/uN2KkKLghUJKhOsXkWyREvfSlsMDSn/NWDp2KBIh1sv9JzRXmZhFAAaiVT74LfSPTwJKEAIV1RgAmSbEX60iS/5gCs2ntwoG8D6q5va+gSXwGjpk97kf9qhsocbf8w0L6vEq1Iw5CJwxY9P3gISGPmOGN6l3geksnpQgewNXMgIeZ0HvtxFJWc4HpiEZZZc0ZpVrGJY+WZZ5Bi3njNIbnW8A8g5+llJf+g2U7xnsqEs/oqzAKhbCnZvpXUH3TQjs58FmDegGCOI1hhZtxu4Vf0fE1yOu9nDW1nqxke7a8et3wLPGLXODR/zP+jz2opJe/UY87EstSSR6e7JMnGmgKbkImGrkvY0s4ul2ITeGTWoaZVKrWW7CKXS/MexVjDpKBdwUHhKeYcEszMOhyK1t3K75WTla3YIQW6Xmf5Nhxte6qCq1SDaamic6hjW9vCRSrlhcAqMuauja0MiKNxKc="
+    dry-run: false
+    skip_cleanup: true
+    on:
+      branch: packaging
+
+  - provider: bintray
+    file: packaging/bintray.json
+    user: bpteague
+    key:
+      secure: "ign6ESQuyEYnp1LJ0i/S+h2ZXtEP5P89EbmW7nRmFK1vvBAgD72sVI2y6tji+sErEErIke/ERZHRtLh4q8LvZT4J7LhJradRGYXa6Y1S56wb/bn2xRS1lKXJz3HUD+WxqYD3ZZ+q7AEcD51TkDv6Bmo5hXlkyHEzATBRwZl7kC2GPIatCva+KWd1YB1kUBPvrhCvgn1fCE0Xzcdzf5EKu7/uN2KkKLghUJKhOsXkWyREvfSlsMDSn/NWDp2KBIh1sv9JzRXmZhFAAaiVT74LfSPTwJKEAIV1RgAmSbEX60iS/5gCs2ntwoG8D6q5va+gSXwGjpk97kf9qhsocbf8w0L6vEq1Iw5CJwxY9P3gISGPmOGN6l3geksnpQgewNXMgIeZ0HvtxFJWc4HpiEZZZc0ZpVrGJY+WZZ5Bi3njNIbnW8A8g5+llJf+g2U7xnsqEs/oqzAKhbCnZvpXUH3TQjs58FmDegGCOI1hhZtxu4Vf0fE1yOu9nDW1nqxke7a8et3wLPGLXODR/zP+jz2opJe/UY87EstSSR6e7JMnGmgKbkImGrkvY0s4ul2ITeGTWoaZVKrWW7CKXS/MexVjDpKBdwUHhKeYcEszMOhyK1t3K75WTla3YIQW6Xmf5Nhxte6qCq1SDaamic6hjW9vCRSrlhcAqMuauja0MiKNxKc="
+    dry-run: false
+    skip_cleanup: true
+    on:
+      branch: python3
+      
+  - provider: bintray
+    file: packaging/bintray.json
+    user: bpteague
+    key:
+      secure: "ign6ESQuyEYnp1LJ0i/S+h2ZXtEP5P89EbmW7nRmFK1vvBAgD72sVI2y6tji+sErEErIke/ERZHRtLh4q8LvZT4J7LhJradRGYXa6Y1S56wb/bn2xRS1lKXJz3HUD+WxqYD3ZZ+q7AEcD51TkDv6Bmo5hXlkyHEzATBRwZl7kC2GPIatCva+KWd1YB1kUBPvrhCvgn1fCE0Xzcdzf5EKu7/uN2KkKLghUJKhOsXkWyREvfSlsMDSn/NWDp2KBIh1sv9JzRXmZhFAAaiVT74LfSPTwJKEAIV1RgAmSbEX60iS/5gCs2ntwoG8D6q5va+gSXwGjpk97kf9qhsocbf8w0L6vEq1Iw5CJwxY9P3gISGPmOGN6l3geksnpQgewNXMgIeZ0HvtxFJWc4HpiEZZZc0ZpVrGJY+WZZ5Bi3njNIbnW8A8g5+llJf+g2U7xnsqEs/oqzAKhbCnZvpXUH3TQjs58FmDegGCOI1hhZtxu4Vf0fE1yOu9nDW1nqxke7a8et3wLPGLXODR/zP+jz2opJe/UY87EstSSR6e7JMnGmgKbkImGrkvY0s4ul2ITeGTWoaZVKrWW7CKXS/MexVjDpKBdwUHhKeYcEszMOhyK1t3K75WTla3YIQW6Xmf5Nhxte6qCq1SDaamic6hjW9vCRSrlhcAqMuauja0MiKNxKc="
+    dry-run: false
+    skip_cleanup: true
+    on:
+      branch: master
+
+  - provider: pypi
+    user: Brian.Teague
+    password:
+      secure: P2kebBOVixLdfWV0UYKPa8Y87YIqWc4I1TAr6myTiTL1OGdHvAsoBL3hxP+84F8ZL52hnqUWL/GuRO+IIf4R4IJbIF8Nj8DQG28dN/jBNK/EgBd0ut6myv4yFht5aL5o7qsCpTZxxwDori0+7y8wkvAd/Dz5T+UNb5TzOT2W/aYBz2LRwJaJ2lmGPktCJfopVUxGD9iWCJV1imaw9IqBZof8v1bbkFGf06Lpgb8TKeGZGikiFiiDhDjXuVmsH8FysJV5KmiWUxNOvzZ6xNU+gqOLkVP3bZwM764ZKlU5GEkKP4Yfdru/ixicwm2bAENSQ4B9OZKnhrx8oycJLyrIMlEctWByva8Yj+zBvxPsSjwc+DvIjmbfJVnhAY0aWpMVfbfASlTny+dMjPesuGb/kieSD7rF4S82Zfs4mcNXF25QFteyjcTswp/WSdZMg7jmU23fi8XVMZxNHeYuZFciJW4DSpMM8nSWUXb5tT9NPUQmRKLGYGY4mFh+F2P6/exZwISzWkDIVZNAmOhGec8D00YmceVHe1dk4nX+i6BWojsP6KGmbAgIrZxmDJ8T/mWVWu0yAnU2QpyJMsbrPIaM7otNQaVoHwSk4c5IFcON2ZEdz/gs6KRd99M+fQBJzOEYS8WqNlOS+TpQhkmOhyU4xFuKv4ieyWLXu7PofQR9nAQ=
+    on:
+      repo: bpteague/cytoflow
+      tags: true
+    server: https://pypi.python.org/pypi
+    skip_cleanup: true
+    distributions: "sdist bdist_wheel"

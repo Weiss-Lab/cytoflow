@@ -1,91 +1,176 @@
+#!/usr/bin/env python3.4
+# coding: latin-1
+
+# (c) Massachusetts Institute of Technology 2015-2017
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 """
 Created on Feb 11, 2015
-
 @author: brian
 """
-from pyface.tasks.task_pane import TaskPane
-from matplotlib_editor import MPLFigureEditor
-from traits.api import Instance, provides
-from pyface.tasks.i_task_pane import ITaskPane
-import matplotlib.pyplot as plt
+import sys
 
-import threading, time
+from traits.api import Instance, provides
+from traitsui.editor_factory import EditorWithListFactory
+from traitsui.qt4.enum_editor import BaseEditor as BaseEnumerationEditor
+from traitsui.qt4.constants import ErrorColor
+
+from pyface.qt import QtCore, QtGui
+from pyface.tasks.api import TaskPane, ITaskPane
+
+from cytoflowgui.matplotlib_backend import FigureCanvasQTAggLocal
+from matplotlib.figure import Figure
 
 @provides(ITaskPane)
 class FlowTaskPane(TaskPane):
     """
     The center pane for the UI; contains the matplotlib canvas for plotting
-    data views.  eventually, this will allow multiple views; for now, it's
-    just one matplotlib canvas.
+    data views.
     """
     
     id = 'edu.mit.synbio.cytoflow.flow_task_pane'
     name = 'Cytometry Data Viewer'
     
-    editor = Instance(MPLFigureEditor)
-    
+    layout = Instance(QtGui.QVBoxLayout)                    # @UndefinedVariable
+    canvas = Instance(FigureCanvasQTAggLocal)
+        
     def create(self, parent):
-        self.editor = MPLFigureEditor(parent)
-        self.control = self.editor.control
+        if self.canvas is not None:
+            return
+        
+        # create a layout for the tab widget and the main view
+        self.layout = layout = QtGui.QVBoxLayout()          # @UndefinedVariable
+        self.control = QtGui.QWidget()                      # @UndefinedVariable
+        self.control.setLayout(layout)
+        
+        tabs_ui = self.model.edit_traits(view = 'plot_view',
+                                         kind = 'subpanel',
+                                         parent = parent)
+        self.layout.addWidget(tabs_ui.control) 
+        
+        # add the main plot
+        self.canvas = FigureCanvasQTAggLocal(Figure(), self.model.child_matplotlib_conn)
+        self.canvas.setSizePolicy(QtGui.QSizePolicy.Expanding,  # @UndefinedVariable
+                                  QtGui.QSizePolicy.Expanding)  # @UndefinedVariable
+        layout.addWidget(self.canvas)
 
     def destroy(self):
-        self.editor.destroy()
-        self.control = self.editor = None 
+        pass
+#         self.layout = self.control = None 
+                  
+    def export(self, filename, **kwargs):      
+        self.canvas.print_figure(filename, bbox_inches = 'tight', **kwargs)
+    
+class _TabListEditor(BaseEnumerationEditor):
+    
+    # the currently selected notebook page
+#     selected = Any
+    
+    def init(self, parent):        
+        super(_TabListEditor, self).init(parent)
         
-    def clear_plot(self):
-        self.editor.clear = True
-        self.editor.draw = True
-        
-    def plot(self, experiment, view):
-        """
-        Plot the an experiment in the center pane.
-        
-        Arguments
-        ---------
-        experiment : cytoflow.Experiment
-            The data to plot
+        self.control = QtGui.QTabBar()                      # @UndefinedVariable
+        self.control.setDocumentMode(True)  
+        for name in self.names:
+            self.control.addTab(str(name))
             
-        view : cytoflow.IView
-            The view to use for the plotting
-        """
+        QtCore.QObject.connect(self.control,                # @UndefinedVariable 
+                               QtCore.SIGNAL('currentChanged(int)'), # @UndefinedVariable
+                               self.update_object )
+
+
          
-#         # TODO - make this multithreaded.  atm this returns "Cannot set parent,
-#         # new parent is in a different thread."
-#         def do_plot(view, experiment):
-#             view.plot(experiment)
-#                  
-#         t = threading.Thread(target = do_plot,
-#                              args = (view, experiment))
-#         t.start()
-#         t.join()
-#         
-#         self.editor.clear = True
-#         self.editor.figure = plt.gcf()
-#         self.editor.draw = True
-        
-        # TODO - view.plot is going to create a new figure.  get the new
-        # figure with plt.gcf() and keep track of the mapping between figure
-        # and view; then, set the editor to the new figure.
-        
-        # TODO - make the plotting responsive to the view params.  ie,
-        # after a new view is created, watch it so that if its params change
-        # we can make a new plot (figure); but if the params stay the same
-        # and the plot is re-selected, we can just reuse the existing figure.
-        
-        view.plot(experiment)
-        self.editor.figure = plt.gcf()
-           
-        if "interactive" in view.traits():
-            # we have to re-bind the Cursor to the new Axes object by twiddling
-            # the "interactive" trait
-            view.interactive = False
-            view.interactive = True 
+        # Set up the additional 'list items changed' event handler needed for
+        # a list based trait. Note that we want to fire the update_editor_item
+        # only when the items in the list change and not when intermediate
+        # traits change. Therefore, replace "." by ":" in the extended_name
+        # when setting up the listener.
+#         extended_name = self.extended_name.replace('.', ':')
+#         self.context_object.on_trait_change( self.update_editor_item,
+#                                extended_name + '_items?', dispatch = 'ui' )  
+#          
+#         # Set of selection synchronization:
+#         self.sync_value( self.factory.selected, 'selected' ) 
+
+
+#     def update_editor(self):
+#         while self.control.count() > 0:
+#             self.control.removeTab(0)
+#             
+#         for v in self.value:
+#             self.control.addTab(str(v))
+#             
+#         if not self.value:
+#             self.selected = None
+
+
+#     def update_editor_item (self, event):
+#         """ Handles an update to some subset of the trait's list.
+#         """
+#         self.update_editor()
+
+    def update_editor(self):
+        """ Updates the editor when the object trait changes externally to the
+            editor.
+        """
+        try:
+            index = self.names.index(self.inverse_mapping[self.value])
+            self.control.setCurrentIndex(index)
+        except:
+            self.control.setCurrentIndex(0)
+            self.update_object(0)
+    
+    def update_object(self, idx):
+        """ Handles a notebook tab being "activated" (i.e. clicked on) by the
+            user.
+        """
+        if idx >= 0 and idx < len(self.names):
+            name = self.names[idx]
+            self.value = self.mapping[str(name)]
             
-            
-    def export(self, filename):
-        # TODO - eventually give a preview, allow changing size, dpi, aspect 
-        # ratio, plot layout, etc.  at the moment, just export exactly what's
-        # on the screen
-        plt.savefig(filename, bbox_inches = 'tight')
+    def rebuild_editor(self):
+        self.control.blockSignals(True)
         
+        while self.control.count() > 0:
+            self.control.removeTab(0)
+             
+        for name in self.names:
+            self.control.addTab(str(name))
+            
+        self.control.blockSignals(False)
+        self.update_editor()
+        
+    def error(self, excp):
+        """ Handles an error that occurs while setting the object's trait value.
+        """
+        self._set_background(ErrorColor)
+        
+        
+
+    
+#     def dispose ( self ):
+#         """ Disposes of the contents of an editor.
+#         """
+#         self.context_object.on_trait_change( self.update_editor_item,
+#                                 self.name + '_items?', remove = True )
+# 
+#         super(_TabListEditor, self).dispose()
+        
+# editor factory
+class TabListEditor(EditorWithListFactory):
+    def _get_custom_editor_class(self):
+        return _TabListEditor
+
         

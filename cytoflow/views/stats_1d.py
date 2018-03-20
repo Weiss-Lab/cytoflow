@@ -1,239 +1,277 @@
-from __future__ import division
+#!/usr/bin/env python3.4
+# coding: latin-1
 
-if __name__ == '__main__':
-    from traits.etsconfig.api import ETSConfig
-    ETSConfig.toolkit = 'qt4'
+# (c) Massachusetts Institute of Technology 2015-2017
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-    import os
-    os.environ['TRAITS_DEBUG'] = "1"
+'''
+cytoflow.views.stats_1d
+-----------------------
+'''
 
-from traits.api import HasStrictTraits, Str, provides, Callable, Enum
+from traits.api import provides, Constant
 import matplotlib.pyplot as plt
-from cytoflow.views.i_view import IView
+
 import numpy as np
-import seaborn as sns
-import pandas as pd
+
+import cytoflow.utility as util
+from .i_view import IView
+from .base_views import Base1DStatisticsView
 
 @provides(IView)
-class Stats1DView(HasStrictTraits):
+class Stats1DView(Base1DStatisticsView):
     """
-    Plots a scatter plot of a numeric variable (or optionally a summary
-    statistic of some data) on the x axis vs a summary statistic of the
-    same data on the y axis.
+    Plot a statistic.  The value of the statistic will be plotted on the
+    Y axis; a numeric conditioning variable must be chosen for the X axis.
+    Every variable in the statistic must be specified as either the `variable`
+    or one of the plot facets.
     
     Attributes
     ----------
-    name : Str
-        The plot's name 
+    variable_scale : {'linear', 'log', 'logicle'}
+        The scale applied to the variable (on the X axis)
+        
+    Examples
+    --------
     
-    variable : Str
-        the name of the condition to put on the X axis
+    .. plot::
+        :context: close-figs
         
-    xchannel : None or Str
-        If not None, apply *xfunction* to *xchannel* for each value of
-        *xvariable*.  If None, then use values of *variable* on the x axis.
-        
-    xfunction : Callable
-        What summary function to apply if *xchannel* is not None
+        Make a little data set.
     
-    ychannel : Str
-        Apply *yfunction* to *ychannel* for each value of *variable*
+        >>> import cytoflow as flow
+        >>> import_op = flow.ImportOp()
+        >>> import_op.tubes = [flow.Tube(file = "Plate01/RFP_Well_A3.fcs",
+        ...                              conditions = {'Dox' : 10.0}),
+        ...                    flow.Tube(file = "Plate01/CFP_Well_A4.fcs",
+        ...                              conditions = {'Dox' : 1.0})]
+        >>> import_op.conditions = {'Dox' : 'float'}
+        >>> ex = import_op.apply()
+    
+    Create and a new statistic.
+    
+    .. plot::
+        :context: close-figs
         
-    yfunction : Callable
-        What summary function to apply to *ychannel*
+        >>> ch_op = flow.ChannelStatisticOp(name = 'MeanByDox',
+        ...                     channel = 'Y2-A',
+        ...                     function = flow.geom_mean,
+        ...                     by = ['Dox'])
+        >>> ex2 = ch_op.apply(ex)
         
-    xfacet : Str
-        the conditioning variable for horizontal subplots
-        TODO - currently unimplemented
+    View the new statistic
+    
+    .. plot::
+        :context: close-figs
         
-    yfacet : Str
-        the conditioning variable for vertical subplots
-        TODO - currently unimplemented
-        
-    huefacet : 
-        the conditioning variable for color.
-        TODO - currently unimplemented
-        
-    x_error_bars, y_error_bars : Enum(None, "data", "summary")
-        draw error bars?  if "data", apply *{x,y}_error_function* to the same
-        data that was summarized with *function*.  if "summary", apply
-        *{x,y}_error_function* to subsets defined by *{x,y}_error_var* 
-        TODO - unimplemented
-        
-    x_error_var, y_error_var : Str
-        the conditioning variable used to determine summary subsets.  take the
-        data that was used to draw the bar; subdivide it further by 
-        {x,y}_error_var; compute the summary statistic for each subset, then 
-        apply {x,y}_error_function to the resulting list.
-        TODO - unimplemented
-        
-    x_error_function, y_error_function : Callable (1D numpy.ndarray --> float)
-        for each group/subgroup subset, call this function to compute the 
-        error bars.  whether it is called on the data or the summary function
-        is determined by the value of *{x,y}_error_bars*
-        TODO - unimplemented
-        
-    subset : Str
-        a string passed to pandas.DataFrame.query() to subset the data before 
-        we plot it.
+        >>> flow.Stats1DView(variable = 'Dox',
+        ...                  statistic = ('MeanByDox', 'geom_mean'),
+        ...                  xscale = 'log',
+        ...                  yscale = 'log').plot(ex2)
     """
     
     # traits   
-    id = "edu.mit.synbio.cytoflow.view.stats1d"
-    friendly_id = "1D Statistics View" 
+    id = Constant("edu.mit.synbio.cytoflow.view.stats1d")
+    friendly_id = Constant("1D Statistics View")
     
-    name = Str
-    variable = Str
-    xchannel = Str
-    xfunction = Callable
-    ychannel = Str
-    yfunction = Callable
-    xfacet = Str
-    yfacet = Str
-    huefacet = Str
-#     x_error_bars = Enum(None, "data", "summary")
-#     x_error_function = Callable
-#     x_error_var = Str
-#     y_error_bars = Enum(None, "data", "summary")
-#     y_error_function = Callable
-#     y_error_var = Str
-    subset = Str
+    REMOVED_ERROR = Constant("Statistics changed dramatically in 0.5; please see the documentation")
+    by = util.Removed(err_string = REMOVED_ERROR)
+    yfunction = util.Removed(err_string = REMOVED_ERROR)
+    ychannel = util.Removed(err_string = REMOVED_ERROR)
+    xvariable = util.Deprecated(new = "variable")
+    xscale = util.Deprecated(new = 'variable_scale')
     
-    # TODO - return the un-transformed values?  is this even valid?
-    # ie, if we transform with Hlog, take the mean, then return the reverse
-    # transformed mean, is that the same as taking the ... um .... geometric
-    # mean of the untransformed data?  hm.
+    variable_scale = util.ScaleEnum
     
-    def plot(self, experiment, **kwargs):
-        """Plot a bar chart"""
+    def enum_plots(self, experiment):
+        """
+        Returns an iterator over the possible plots that this View can
+        produce.  The values returned can be passed to :meth:`plot`.
+        """
+                
+        return super().enum_plots(experiment)
         
-        kwargs.setdefault('marker', 'o')
-        kwargs.setdefault('antialiased', True)
+    
+    def plot(self, experiment, plot_name = None, **kwargs):
+        """Plot a chart of a variable's values against a statistic.
         
-        if self.subset:
-            data = experiment.query(self.subset)
-        else:
-            data = experiment.data
+        Parameters
+        ----------
+        
+        variable_lim : (float, float)
+            The limits on the variable axis
+        
+        color : a matplotlib color
+            The color to plot with.  Overridden if `huefacet` is not `None`
             
-        group_vars = [self.variable]
-        if self.xfacet:
-            group_vars.append(self.xfacet)
-        if self.yfacet:
-            group_vars.append(self.yfacet)
-        if self.huefacet:
-            group_vars.append(self.huefacet)
+        linewidth : float
+            The width of the line, in points
             
-        g = data.groupby(by = group_vars)
+        linestyle : ['solid' | 'dashed', 'dashdot', 'dotted' | (offset, on-off-dash-seq) | '-' | '--' | '-.' | ':' | 'None' | ' ' | '']
+            
+        marker : a matplotlib marker style
+            See http://matplotlib.org/api/markers_api.html#module-matplotlib.markers
+            
+        markersize : int
+            The marker size in points
+            
+        markerfacecolor : a matplotlib color
+            The color to make the markers.  Overridden (?) if `huefacet` is not `None`
+            
+        alpha : the alpha blending value, from 0.0 (transparent) to 1.0 (opaque)
+        
+        Notes
+        -----
+                
+        Other `kwargs` are passed to `matplotlib.pyplot.plot <https://matplotlib.org/devdocs/api/_as_gen/matplotlib.pyplot.plot.html>`_
+        
+        """
+        
+        if self.variable not in experiment.conditions:
+            raise util.CytoflowError('variable',
+                                     "Variable {} not in the experiment"
+                                     .format(self.variable))
+        
+        if not util.is_numeric(experiment[self.variable]):
+            raise util.CytoflowError('variable',
+                                     "Variable {} must be numeric"
+                                     .format(self.variable))
+        
+        variable_scale = util.scale_factory(self.variable_scale, 
+                                            experiment, 
+                                            condition = self.variable)
+        
+        super().plot(experiment, 
+                     plot_name, 
+                     variable_scale = variable_scale,
+                     **kwargs)
 
-        y = g[self.ychannel].aggregate(self.yfunction)        
-        if self.xchannel:
-            x = g[self.xchannel].aggregate(self.xfunction)
-            x_name = self.xchannel
-            plot_data = pd.DataFrame({x_name : x, self.ychannel : y}).reset_index()
+    def _grid_plot(self, experiment, grid, **kwargs):
+
+        data = grid.data
+        data_scale = kwargs.pop('scale')
+        variable_scale = kwargs.pop('variable_scale')
+
+        stat = experiment.statistics[self.statistic]
+        stat_name = stat.name
+        if self.error_statistic[0]:
+            err_stat = experiment.statistics[self.error_statistic]
+            err_stat_name = err_stat.name
         else:
-            plot_data = y.reset_index()
-            x_name = self.variable
+            err_stat = None
+        
+        variable_lim = kwargs.pop("variable_lim", None)
+        if variable_lim is None:
+            variable_lim = (variable_scale.clip(data[self.variable].min() * 0.9),
+                            variable_scale.clip(data[self.variable].max() * 1.1))
+                      
+        lim = kwargs.pop("lim", None)
+        if lim is None:
+            lim = (data_scale.clip(data[stat_name].min() * 0.9),
+                   data_scale.clip(data[stat_name].max() * 1.1))
             
-        # TODO - handle log-scale variables
+            if self.error_statistic[0]:
+                try: 
+                    lim = (data_scale.clip(min([x[0] for x in data[err_stat_name]]) * 0.9),
+                           data_scale.clip(max([x[1] for x in data[err_stat_name]]) * 1.1))
+                except (TypeError, IndexError):
+                    lim = (data_scale.clip((data[stat_name].min() - data[err_stat_name].min()) * 0.9), 
+                           data_scale.clip((data[stat_name].max() + data[err_stat_name].max()) * 1.1))
+
+
+        orientation = kwargs.pop('orientation', 'vertical')
+        if orientation == 'vertical':
+            # plot the error bars first so the axis labels don't get overwritten
+            if err_stat is not None:
+                grid.map(_v_error_bars, self.variable, stat_name, err_stat_name)
             
-        grid = sns.FacetGrid(plot_data,
-                             col = (self.xfacet if self.xfacet else None),
-                             row = (self.yfacet if self.yfacet else None),
-                             hue = (self.huefacet if self.huefacet else None),
-                             legend_out = False)
-        
-        grid.map(plt.scatter, x_name, self.ychannel, **kwargs)
-        grid.map(plt.plot, x_name, self.ychannel, **kwargs)
-        grid.add_legend()
-        
-    def is_valid(self, experiment):
-        """Validate this view against an experiment."""
-        if not experiment:
-            return False
-        
-        if not self.variable in experiment.metadata:
-            return False
-        
-        # TODO - check that self.variable is NUMERIC, not categorical
-        
-        if self.xchannel and self.xchannel not in experiment.channels:
-            return False
-        
-        if self.xchannel and not self.xfunction:
-            return False
-        
-        if not self.ychannel or self.ychannel not in experiment.channels:
-            return False
-        
-        if not self.yfunction:
-            return False
-        
-        if self.xfacet and self.xfacet not in experiment.metadata:
-            return False
-        
-        if self.yfacet and self.yfacet not in experiment.metadata:
-            return False
-        
-        if self.huefacet and self.huefacet not in experiment.metadata:
-            return False
-        
-        if self.subset:
-            try:
-                experiment.query(self.subset)
-            except:
-                return False
-        
-        return True
+            grid.map(plt.plot, self.variable, stat_name, **kwargs)
+            
+            return dict(xscale = variable_scale,
+                        xlim = variable_lim,
+                        yscale = data_scale, 
+                        ylim = lim)
+        else:
+            # plot the error bars first so the axis labels don't get overwritten
+            if err_stat is not None:
+                grid.map(_h_error_bars, stat_name, self.variable, err_stat_name)
+            
+            grid.map(plt.plot, stat_name, self.variable, **kwargs)
+            
+            return dict(yscale = variable_scale,
+                        ylim = variable_lim,
+                        xscale = data_scale, 
+                        xlim = lim)
+
+                
+def _v_error_bars(x, y, yerr, ax = None, color = None, **kwargs):
     
+    kwargs.pop('markersize', None)
+    kwargs.pop('markersize', None)
+    
+    if isinstance(yerr.iloc[0], tuple):
+        lo = [ye[0] for ye in yerr]
+        hi = [ye[1] for ye in yerr]
+    else:
+        lo = [y.iloc[i] - ye for i, ye in yerr.reset_index(drop = True).items()]
+        hi = [y.iloc[i] + ye for i, ye in yerr.reset_index(drop = True).items()]
+
+    plt.vlines(x, lo, hi, color = color, **kwargs)
+    
+def _h_error_bars(x, y, xerr, ax = None, color = None, **kwargs):
+    
+    kwargs.pop('markersize', None)
+    kwargs.pop('markersize', None)
+    
+    if isinstance(xerr.iloc[0], tuple):
+        lo = [xe[0] for xe in xerr]
+        hi = [xe[1] for xe in xerr]
+    else:
+        lo = [x.iloc[i] - xe for i, xe in xerr.reset_index(drop = True).items()]
+        hi = [x.iloc[i] + xe for i, xe in xerr.reset_index(drop = True).items()]
+
+    plt.hlines(y, lo, hi, color = color, **kwargs)
+    
+util.expand_class_attributes(Stats1DView)
+util.expand_method_parameters(Stats1DView, Stats1DView.plot)
+    
+
 if __name__ == '__main__':
     import cytoflow as flow
-    import FlowCytometryTools as fc
+    
+    tube1 = flow.Tube(file = '../../cytoflow/tests/data/Plate01/RFP_Well_A3.fcs',
+                      conditions = {"Dox" : 10.0})
+    
+    tube2 = flow.Tube(file = '../../cytoflow/tests/data/Plate01/CFP_Well_A4.fcs',
+                      conditions = {"Dox" : 1.0})                      
 
-    tube1 = fc.FCMeasurement(ID='Test 1', 
-                             datafile='../../cytoflow/tests/data/Plate01/RFP_Well_A3.fcs')
-
-    tube2 = fc.FCMeasurement(ID='Test 2', 
-                           datafile='../../cytoflow/tests/data/Plate01/CFP_Well_A4.fcs')
-    
-    tube3 = fc.FCMeasurement(ID='Test 3', 
-                             datafile='../../cytoflow/tests/data/Plate01/RFP_Well_A3.fcs')
-
-    tube4 = fc.FCMeasurement(ID='Test 4', 
-                           datafile='../../cytoflow/tests/data/Plate01/CFP_Well_A4.fcs')
-    
-    ex = flow.Experiment()
-    ex.add_conditions({"Dox" : "float"})
-    
-    ex.add_tube(tube1, {"Dox" : 10.0})
-    ex.add_tube(tube2, {"Dox" : 1.0})
-#     ex.add_tube(tube3, {"Dox" : 10.0, "Repl" : 2})
-#     ex.add_tube(tube4, {"Dox" : 1.0, "Repl" : 2})
-    
-    hlog = flow.HlogTransformOp()
-    hlog.name = "Hlog transformation"
-    hlog.channels = ['V2-A', 'Y2-A', 'B1-A', 'FSC-A', 'SSC-A']
-    ex2 = hlog.apply(ex)
+    ex = flow.ImportOp(conditions = {"Dox" : "float"}, tubes = [tube1, tube2])
     
     thresh = flow.ThresholdOp()
     thresh.name = "Y2-A+"
     thresh.channel = 'Y2-A'
     thresh.threshold = 2005.0
 
-    ex3 = thresh.apply(ex2)
+    ex2 = thresh.apply(ex)
     
     s = flow.Stats1DView()
-    s.variable = "Dox"
-#    s.xchannel = "V2-A"
-#    s.xfunction = np.mean
+    s.by = "Dox"
     s.ychannel = "Y2-A"
     s.yfunction = np.mean
     s.huefacet = "Y2-A+"
-#    s.group = "Dox"
-#    s.subgroup = "Y2-A+"
-#    s.error_bars = "data"
-    #s.error_var = "Repl"
-#    s.error_function = np.std
     
     plt.ioff()
-    s.plot(ex3)
+    s.plot(ex2)
     plt.show()

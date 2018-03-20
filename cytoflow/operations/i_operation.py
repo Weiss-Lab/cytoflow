@@ -1,7 +1,31 @@
+#!/usr/bin/env python3.4
+# coding: latin-1
+
+# (c) Massachusetts Institute of Technology 2015-2017
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+'''
+cytoflow.operations.i_operation
+-------------------------------
+'''
+
 from traits.api import Interface, Str
 
 class IOperation(Interface):
-    """The basic interface for an operation on cytometry data.
+    """
+    The basic interface for an operation on cytometry data.
     
     Attributes
     ----------
@@ -9,51 +33,40 @@ class IOperation(Interface):
         a unique identifier for this class. prefix: edu.mit.synbio.cytoflow.operations
         
     friendly_id : Str
-        The operation's human-readable id (like "Logicle" or "Hyperlog").  Used
-        for UI implementations.
+        The operation's human-readable id (like ``Threshold`` or ``K-means``).  
+        Used for UI implementations.
         
     name : Str
-        The name of this IOperation instance (like "Debris Filter").  Useful for
-        UI implementations; sometimes used for naming gates' metadata
+        The name of this IOperation instance (like ``Debris_Filter``).  Useful 
+        for UI implementations; sometimes used for naming gates' metadata
     """
     
     # interface traits
     id = Str
     friendly_id = Str
     name = Str
-    
-    def is_valid(self, experiment):
-        """Validate the parameters of this operation given an Experiment.
-        
-        For example, make sure that all the channels this op asks for 
-        exist; or that the subset string for a data-driven op is valid.
-        
-        Parameters
-        ----------
-        experiment : Experiment
-            the Experiment to validate this op against
-            
-        Returns
-        -------
-            True if this op will work; False otherwise.
-        """
         
     def estimate(self, experiment, subset = None):
-        """Estimate this operation's parameters from some data.
+        """
+        Estimate this operation's parameters from some data.
         
-        For operations that are data-driven (for example, a mixture model,
-        or the Logicle transform), estimate the operation's parameters from
-        an experiment.
+        For operations that are data-driven (for example, a mixture model), 
+        estimate the operation's parameters from an experiment.
         
         Parameters
         ----------
         experiment : Experiment
-            the Experiment to use in the estimation.
+            the :class:`.Experiment` to use in the estimation.
         
         subset : Str (optional)
-            a string passed to pandas.DataFrame.query() to select the subset
+            a string passed to :meth:`pandas.DataFrame.query` to select the subset
             of data on which to run the parameter estimation.
-        
+            
+        Raises
+        ------
+        CytoflowOpException
+            If the operation can't be be completed because of bad op
+            parameters.
         """ 
     
     def apply(self, experiment):
@@ -62,11 +75,38 @@ class IOperation(Interface):
         
         Parameters
         ----------
-            old_experiment : Experiment
-                the Experiment to apply this op to
+        experiment : Experiment
+            the :class:`Experiment` to apply this op to
                     
         Returns
         -------
-            Experiment
-                the old Experiment with this operation applied
+        Experiment
+            the old :class:`Experiment` with this operation applied
+                
+        Raises
+        ------
+        CytoflowOpException
+            If the operation can't be be completed because of bad op
+            parameters.
         """
+        
+    def default_view(self, **kwargs):
+        """
+        Many operations have a "default" view.  This can either be a diagnostic
+        for the operation's :meth:`estimate` method, an interactive for setting
+        gates, etc.  Frequently it makes sense to link the properties of the
+        view to the properties of the :class:`IOperation`; sometimes, 
+        :meth:`default_view` is the only way to get the view (ie, it's not 
+        useful when it doesn't reference an :class:`IOperation` instance.)
+        
+        Parameters
+        ----------
+        **kwargs : Dict
+            The keyword args passed to the view's constructor
+        
+        Returns
+        -------
+        IView
+            the IView instance
+        """
+        

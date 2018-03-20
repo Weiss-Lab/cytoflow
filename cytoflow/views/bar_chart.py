@@ -1,202 +1,323 @@
-from __future__ import division
+#!/usr/bin/env python3.4
+# coding: latin-1
 
-if __name__ == '__main__':
-    from traits.etsconfig.api import ETSConfig
-    ETSConfig.toolkit = 'qt4'
+# (c) Massachusetts Institute of Technology 2015-2017
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-    import os
-    os.environ['TRAITS_DEBUG'] = "1"
+'''
+cytoflow.views.bar_chart
+------------------------
+'''
 
-from traits.api import HasStrictTraits, Str, provides, Callable, Enum
+from traits.api import provides, Constant
+
+import matplotlib as mpl
 import matplotlib.pyplot as plt
-from cytoflow.views.i_view import IView
 import numpy as np
-import seaborn as sns
+import pandas as pd
+
+import cytoflow.utility as util
+from .i_view import IView
+from .base_views import Base1DStatisticsView
 
 @provides(IView)
-class BarChartView(HasStrictTraits):
-    """Plots a bar chart of some summary statistic
+class BarChartView(Base1DStatisticsView):
+    """
+    Plots a bar chart of some summary statistic
     
     Attributes
     ----------
-    name : Str
-        The bar chart's name 
     
-    channel : Str
-        the name of the channel we're summarizing 
+    Examples
+    --------
+    
+    Make a little data set.
+    
+    .. plot::
+        :context: close-figs
+            
+        >>> import cytoflow as flow
+        >>> import_op = flow.ImportOp()
+        >>> import_op.tubes = [flow.Tube(file = "Plate01/RFP_Well_A3.fcs",
+        ...                              conditions = {'Dox' : 10.0}),
+        ...                    flow.Tube(file = "Plate01/CFP_Well_A4.fcs",
+        ...                              conditions = {'Dox' : 1.0})]
+        >>> import_op.conditions = {'Dox' : 'float'}
+        >>> ex = import_op.apply()
         
-    variable : Str
-        the name of the conditioning variable to group the chart's bars
+    Add a threshold gate
+    
+    .. plot::
+        :context: close-figs
+    
+        >>> ex2 = flow.ThresholdOp(name = 'Threshold',
+        ...                        channel = 'Y2-A',
+        ...                        threshold = 2000).apply(ex)
+        
+    Add a statistic
+    
+    .. plot::
+        :context: close-figs
 
-    function : Callable (1D numpy.ndarray --> float)
-        per facet, call this function to summarize the data.  takes a single
-        parameter, a 1-dimensional numpy.ndarray, and returns a single float. 
-        useful suggestions: np.mean, cytoflow.geom_mean
+        >>> ex3 = flow.ChannelStatisticOp(name = "ByDox",
+        ...                               channel = "Y2-A",
+        ...                               by = ['Dox', 'Threshold'],
+        ...                               function = len).apply(ex2) 
+    
+    Plot the bar chart
+    
+    .. plot::
+        :context: close-figs
         
-    error_bars : Enum(None, "data", "summary")
-        draw error bars?  if "data", apply *error_function* to the same
-        data that was summarized with *function*.  if "summary", apply
-        *function* to subsets defined by *error_var*  
-        TODO - unimplemented
+        >>> flow.BarChartView(statistic = ("ByDox", "len"),
+        ...                   variable = "Dox",
+        ...                   huefacet = "Threshold").plot(ex3)
         
-    error_var : Str
-        the conditioning variable used to determine summary subsets.  take the
-        data that was used to draw the bar; subdivide it further by error_var;
-        compute the summary statistic for each subset, then apply error_function
-        to the resulting list.
-        TODO - unimplemented
-        
-    error_function : Callable (1D numpy.ndarray --> float)
-        for each group/subgroup subset, call this function to compute the 
-        error bars.  whether it is called on the data or the summary function
-        is determined by the value of *error_bars*
-        TODO - unimplemented
-        
-    xfacet : Str
-        the conditioning variable for horizontal subplots
-        
-    yfacet : Str
-        the conditioning variable for vertical subplots
-        
-    huefacet : Str
-        the conditioning variable to make multiple bar colors
-        
-    orientation : Enum("horizontal", "vertical")
-        do we plot the bar chart horizontally or vertically?
-        TODO - waiting on seaborn v0.6
-
-    subset : Str
-        a string passed to pandas.DataFrame.query() to subset the data before 
-        we plot it.
     """
     
     # traits   
-    id = "edu.mit.synbio.cytoflow.view.barchart"
-    friendly_id = "Bar Chart" 
+    id = Constant("edu.mit.synbio.cytoflow.view.barchart")
+    friendly_id = Constant("Bar Chart") 
     
-    name = Str
-    channel = Str
-    variable = Str
-    function = Callable
-    #orientation = Enum("horizontal", "vertical")
-    xfacet = Str
-    yfacet = Str
-    huefacet = Str
-    # TODO - make error bars work properly.
-#     error_bars = Enum(None, "data", "summary")
-#     error_function = Callable
-#     error_var = Str
-    subset = Str
+    orientation = util.Removed(err_string = "`orientation` is now a parameter to `plot`")
     
-    # TODO - return the un-transformed values?  is this even valid?
-    # ie, if we transform with Hlog, take the mean, then return the reverse
-    # transformed mean, is that the same as taking the ... um .... geometric
-    # mean of the untransformed data?  hm.
-    
-    def plot(self, experiment, **kwargs):
-        """Plot a bar chart"""
+    def enum_plots(self, experiment):
+        """
+        Returns an iterator over the possible plots that this View can
+        produce.  The values returned can be passed to "plot".
+        """
+                
+        return super().enum_plots(experiment)
         
-        if self.subset:
-            data = experiment.query(self.subset)
-        else:
-            data = experiment.data
+        
+    def plot(self, experiment, plot_name = None, **kwargs):
+        """
+        Plot a bar chart
+        
+        Parameters
+        ----------
             
-        sns.factorplot(x = self.variable,
-                       y = self.channel,
-                       data = data,
-                       row = (self.yfacet if self.yfacet else None),
-                       col = (self.xfacet if self.xfacet else None),
-                       hue = (self.huefacet if self.huefacet else None),
-                       # something buggy here.
-                       #orient = ("h" if self.orientation == "horizontal" else "v"),
-                       estimator = self.function,
-                       ci = None,
-                       kind = "bar")
+        color : a matplotlib color
+            Sets the colors of all the bars, even if there is a hue facet
+            
+        errwidth : scalar
+            The width of the error bars, in points
+            
+        errcolor : a matplotlib color
+            The color of the error bars
+            
+        capsize : scalar
+            The size of the error bar caps, in points
+            
+        Notes
+        -----
         
-    def is_valid(self, experiment):
-        """Validate this view against an experiment."""
-        if not experiment:
-            return False
-        
-        if self.channel not in experiment.channels:
-            return False
-        
-        if not self.variable in experiment.metadata:
-            return False
-        
-        if not self.function:
-            return False
-        
-        if self.xfacet and self.xfacet not in experiment.metadata:
-            return False
-        
-        if self.yfacet and self.yfacet not in experiment.metadata:
-            return False
+        Other ``kwargs`` are passed to `matplotlib.axes.Axes.bar <https://matplotlib.org/devdocs/api/_as_gen/matplotlib.axes.Axes.bar.html>`_
 
-        if self.huefacet and self.huefacet not in experiment.metadata:
-            return False
+        """
         
-#         if self.error_bars == 'data' and self.error_function is None:
-#             return False
-#         
-#         if self.error_bars == 'summary' \
-#             and (self.error_function is None 
-#                  or not self.error_var in experiment.metadata):
-#             return False
+        super().plot(experiment, plot_name, **kwargs)
         
-        if self.subset:
-            try:
-                experiment.query(self.subset)
-            except:
-                return False
+    def _grid_plot(self, experiment, grid, **kwargs):
+                 
+        # because the bottom of a bar chart is "0", masking out bad
+        # values on a log scale doesn't work.  we must clip instead.
+        orientation = kwargs.pop('orientation', 'vertical')
         
-        return True
+        # statistic scale
+        scale = kwargs.pop('scale')
+        
+        if scale.name == "log":
+            scale.mode = "clip"
+            
+        # limits
+        lim = kwargs.pop('lim', None)
+                
+#         # set the scale for each set of axes; can't just call plt.xscale() 
+#         for ax in grid.axes.flatten():
+#             if orient == 'horizontal':
+#                 ax.set_xscale(yscale.name, **yscale.mpl_params)  
+#             elif orient == 'vertical':
+#                 ax.set_yscale(yscale.name, **yscale.mpl_params)
+#             else:
+#                 raise util.CytoflowViewError('orient', "'orient' param must be 'horizontal' or 'vertical'")  
+#                 
+        stat = experiment.statistics[self.statistic]
+        map_args = [self.variable, stat.name]
+        
+        if self.huefacet:
+            map_args.append(self.huefacet)  
+        
+        if self.error_statistic[0]:
+            error_stat = experiment.statistics[self.error_statistic]
+            map_args.append(error_stat.name)
+        else:
+            error_stat = None
+                        
+        grid.map(_barplot, 
+                 *map_args,
+                 view = self,
+                 stat_name = stat.name,
+                 error_name = error_stat.name if error_stat is not None else None,
+                 orientation = orientation,
+                 grid = grid,
+                 **kwargs)
+        
+        if orientation == 'horizontal':
+            return dict(xscale = scale,
+                        xlim = lim)
+        else:
+            return dict(yscale = scale,
+                        ylim = lim)
+            
+def _barplot(*args, view, stat_name, error_name, orientation, grid, **kwargs):
+    """ 
+    A custom barchart function.  This is assembled from pieces cobbled
+    together from seaborn v0.7.1.
+    """
+  
+    data = pd.DataFrame({s.name: s for s in args})
     
-if __name__ == '__main__':
-    import cytoflow as flow
-    import FlowCytometryTools as fc
-    
-    tube1 = fc.FCMeasurement(ID='Test 1', 
-                             datafile='../../cytoflow/tests/data/Plate01/RFP_Well_A3.fcs')
+    categories = util.categorical_order(data[view.variable])
+ 
+    # plot the bars
+    width = kwargs.pop('width', 0.8)
+    ax = kwargs.pop('ax', None)
 
-    tube2 = fc.FCMeasurement(ID='Test 2', 
-                           datafile='../../cytoflow/tests/data/Plate01/CFP_Well_A4.fcs')
+    if ax is None:
+        ax = plt.gca()
     
-    tube3 = fc.FCMeasurement(ID='Test 3', 
-                             datafile='../../cytoflow/tests/data/Plate01/RFP_Well_A3.fcs')
+    err_kws = {}
+    errwidth = kwargs.pop('errwidth', None)
+    if errwidth:
+        err_kws['lw'] = errwidth
+    else:
+        err_kws['lw'] = mpl.rcParams["lines.linewidth"] * 1.8
+         
+    errcolor = kwargs.pop('errcolor', '0.2')
+    capsize = kwargs.pop('capsize', None)
 
-    tube4 = fc.FCMeasurement(ID='Test 4', 
-                           datafile='../../cytoflow/tests/data/Plate01/CFP_Well_A4.fcs')
+    # Get the right matplotlib function depending on the orientation
+    barfunc = ax.bar if orientation == "vertical" else ax.barh
+    barpos = np.arange(len(categories))
     
-    ex = flow.Experiment()
-    ex.add_conditions({"Dox" : "float", "Repl" : "int"})
-    
-    ex.add_tube(tube1, {"Dox" : 10.0, "Repl" : 1})
-    ex.add_tube(tube2, {"Dox" : 1.0, "Repl" : 1})
-    ex.add_tube(tube3, {"Dox" : 10.0, "Repl" : 2})
-    ex.add_tube(tube4, {"Dox" : 1.0, "Repl" : 2})
-    
-    hlog = flow.HlogTransformOp()
-    hlog.name = "Hlog transformation"
-    hlog.channels = ['V2-A', 'Y2-A', 'B1-A', 'FSC-A', 'SSC-A']
-    ex2 = hlog.apply(ex)
-    
-    thresh = flow.ThresholdOp()
-    thresh.name = "Y2-A+"
-    thresh.channel = 'Y2-A'
-    thresh.threshold = 2005.0
+    if view.huefacet:
+        hue_names = grid.hue_names
+        hue_level = data[view.huefacet].iloc[0]
+        hue_idx = hue_names.index(hue_level)
+        hue_offsets = np.linspace(0, width - (width / len(hue_names)), len(hue_names))
+        hue_offsets -= hue_offsets.mean()
+        nested_width = width / len(hue_names) * 0.98
+        
+        offpos = barpos + hue_offsets[hue_idx]
+        barfunc(offpos,
+                data[stat_name], 
+                nested_width,
+                align="center",
+                **kwargs)
+                
+        if error_name:
+            confint = data[error_name]
+            errcolors = [errcolor] * len(offpos)
+            _draw_confints(ax,
+                           offpos,
+                           data[data[view.huefacet] == hue_level][stat_name],
+                           confint,
+                           errcolors,
+                           orientation,
+                           errwidth = errwidth,
+                           capsize = capsize)
+                
+    else:
+        barfunc(barpos, data[stat_name], width, align="center", **kwargs)
+         
+        if error_name:
+            confint = data[error_name]
+            errcolors = [errcolor] * len(barpos)
+            _draw_confints(ax,
+                           barpos,
+                           data[stat_name],
+                           confint,
+                           errcolors,
+                           orientation,
+                           errwidth = errwidth,
+                           capsize = capsize)
 
-    ex3 = thresh.apply(ex2)
-    
-    s = flow.BarChartView()
-    s.channel = "V2-A"
-    s.function = flow.geom_mean
-    s.variable = "Dox"
-    s.huefacet = "Y2-A+"
-    #s.error_bars = "data"
-    #s.error_var = "Repl"
-    #s.error_function = np.std
-    
-    plt.ioff()
-    s.plot(ex3)
-    plt.show()
+    # do axes
+#     if view.orientation == "vertical":
+#         xlabel, ylabel = view.variable, stat_name
+#     else:
+#         xlabel, ylabel = stat_name, view.variable
+# 
+#     if xlabel is not None:
+#         ax.set_xlabel(xlabel)
+#     if ylabel is not None:
+#         ax.set_ylabel(ylabel)
+
+    if orientation == "vertical":
+        ax.set_xticks(np.arange(len(categories)))
+        ax.set_xticklabels(categories)
+    else:
+        ax.set_yticks(np.arange(len(categories)))
+        ax.set_yticklabels(categories)
+ 
+    if orientation == "vertical":
+        ax.xaxis.grid(False)
+        ax.set_xlim(-.5, len(categories) - .5)
+    else:
+        ax.yaxis.grid(False)
+        ax.set_ylim(-.5, len(categories) - .5)  
+            
+    return ax 
+
+
+def _draw_confints(ax, at_group, stat, confints, colors, 
+                   orient, errwidth=None, capsize=None, **kws):
+ 
+    if errwidth is not None:
+        kws.setdefault("lw", errwidth)
+    else:
+        kws.setdefault("lw", mpl.rcParams["lines.linewidth"] * 1.8)
+         
+    if isinstance(confints.iloc[0], tuple):
+        ci_lo = [x[0] for x in confints]
+        ci_hi = [x[1] for x in confints]
+    else:
+        ci_lo = [stat.iloc[i] - x for i, x in confints.reset_index(drop = True).items()]
+        ci_hi = [stat.iloc[i] + x for i, x in confints.reset_index(drop = True).items()]
+ 
+    for at, lo, hi, color in zip(at_group,
+                                 ci_lo,
+                                 ci_hi,
+                                 colors):
+        if orient == "v":
+            ax.plot([at, at], [lo, hi], color=color, **kws)
+            if capsize is not None:
+                ax.plot([at - capsize / 2, at + capsize / 2],
+                        [lo, lo], color=color, **kws)
+                ax.plot([at - capsize / 2, at + capsize / 2],
+                        [hi, hi], color=color, **kws)
+        else:
+            ax.plot([lo, hi], [at, at], color=color, **kws)
+            if capsize is not None:
+                ax.plot([lo, lo],
+                        [at - capsize / 2, at + capsize / 2],
+                        color=color, **kws)
+                ax.plot([hi, hi],
+                        [at - capsize / 2, at + capsize / 2],
+                        color=color, **kws)
+
+util.expand_class_attributes(BarChartView)
+util.expand_method_parameters(BarChartView, BarChartView.plot)

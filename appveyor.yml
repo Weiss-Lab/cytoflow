@@ -4,24 +4,24 @@ environment:
     # SDK v7.0 MSVC Express 2008's SetEnv.cmd script will fail if the
     # /E:ON and /V:ON options are not enabled in the batch script intepreter
     # See: http://stackoverflow.com/a/13751649/163740
-    WITH_COMPILER: "cmd /E:ON /V:ON /C .\\appveyor\\run_with_compiler.cmd"
+    WITH_COMPILER: "cmd /E:ON /V:ON /C .\\packaging\\appveyor\\run_with_compiler.cmd"
 
   matrix:
 
     # Pre-installed Python versions, which Appveyor may upgrade to
     # a later point release.
 
-    - PYTHON: "C:\\Python27-Anaconda"
-      PYTHON_VERSION: "2.7.x" # currently 2.7.9
+    - PYTHON: "C:\\Miniconda35"
+      PYTHON_VERSION: "3.5.x"   # currently 3.5.2
       PYTHON_ARCH: "32"
 
-    - PYTHON: "C:\\Python27-x64-Anaconda"
-      PYTHON_VERSION: "2.7.x" # currently 2.7.9
+    - PYTHON: "C:\\Miniconda35-x64"
+      PYTHON_VERSION: "3.5.x"       # currently 3.5.2
       PYTHON_ARCH: "64"
-      WINDOWS_SDK_VERSION: "v7.0"
 
 init:
   - "ECHO %PYTHON% %PYTHON_VERSION% %PYTHON_ARCH%"
+  - ps: Update-AppveyorBuild -Version "$($env:appveyor_repo_commit.substring(0,7))"
 
 install:
   - ECHO "Filesystem root:"
@@ -29,10 +29,6 @@ install:
 
   - ECHO "Installed SDKs:"
   - ps: "ls \"C:/Program Files/Microsoft SDKs/Windows\""
-
-  # Install Python (from the official .msi of http://python.org) and pip when
-  # not already installed.
-  - "powershell ./appveyor/install.ps1"
 
   # Prepend newly installed Python to the PATH of this build (this cannot be
   # done from inside the powershell script as it would require to restart
@@ -44,23 +40,96 @@ install:
   - "python -c \"import struct; print(struct.calcsize('P') * 8)\""
   
   # install swig
-  - choco install swig -yv
+  - choco install swig --version 3.0.2 --yes --limit-output
 
   # Install the build and runtime dependencies of the project.
-  - "%CMD_IN_ENV% conda install --yes pandas numexpr seaborn traits pyface envisage pyqt"
-  - "%CMD_IN_ENV% pip install FlowCytometryTools wheel"
-  - "%CMD_IN_ENV% python setup.py bdist_wheel bdist_wininst"
+  - conda update --yes conda
+  - conda create --yes --quiet --name=py35 python=3.5
+  - activate py35
+  
+  # Check again for the expected version and architecture for Python
+  - "python --version"
+  - "python -c \"import struct; print(struct.calcsize('P') * 8)\""
+  
+  # - conda install --yes --quiet mkl=2017.0.3-0  # new version of mkl has bad interaction with numpy
+  - conda install --yes --quiet --file=packaging\conda-requirements.txt
+  - conda install --yes --quiet msvc_runtime pip mock
+  - pip.exe install nose2 
+  - pip.exe install "sphinx==1.6.7"
+  - pip.exe install "pyinstaller==3.3.1"
+  
+  # the PyYAML wheels are busted.  install from source instead
+  - pip.exe install --no-use-wheel pyyaml
+
+  - "%WITH_COMPILER% python setup.py develop"
 
 build: off
 
 test_script:
-  - "%WITH_COMPILER% %PYTHON%/python setup.py test"
+  - "nose2 -c packaging\\nose2.cfg -s cytoflow\\tests"
 
 after_test:
-  - "%WITH_COMPILER% %PYTHON%/python setup.py bdist_wheel"
+  - "python setup.py bdist_wheel bdist_wininst"
+  - "python setup.py build_sphinx -b embedded_help"
+  - "pyinstaller packaging/pyinstaller.spec"
+  - "pyi-archive_viewer -l dist\\cytoflow.exe"
+  - "move dist\\cytoflow.exe dist\\cytoflow-%PYTHON_ARCH%.exe"
+  # - "IF %PYTHON_ARCH% EQU 32 move build\\lib.win32-3.5\\cytoflow\\utility\\logicle_ext\\_Logicle.pyd dist\\_Logicle-32.pyd"
+  # - "IF %PYTHON_ARCH% EQU 64 move build\\lib.win-amd64-3.5\\cytoflow\\utility\\logicle_ext\\_Logicle.pyd dist\\_Logicle-64.pyd"
 
 artifacts:
-  - path: dist\*
+  - path: dist\*.*
 
-#on_success:
-#  - TODO: upload the content of dist/*.whl to a public wheelhouse
+deploy:
+  - provider: GitHub
+    description: 'Cytoflow release'
+    auth_token:
+      secure: VVuhKeMWCRbcFWTVdrIbOuKkgnOqsQnCF3ZXl9SsE5YiCmuuYP1YxmII2ZuAp0lv
+    draft: false
+    prerelease: false
+    force_update: true
+    on:
+      appveyor_repo_tag: true        # deploy on tag push only   
+
+
+  - provider: BinTray
+    username: bpteague
+    api_key:
+      secure: BLgrF3vno40XZMvXZ+DGzxeO8xzQJP1Y/ndUVPEycNlNB2puWDGdPDJ8d4DxDTEj
+    subject: bpteague
+    repo: cytoflow
+    package: cytoflow
+    version: latest
+    publish: true
+    override: true
+    explode: false
+    on:
+        branch: master
+
+  - provider: BinTray
+    username: bpteague
+    api_key:
+      secure: BLgrF3vno40XZMvXZ+DGzxeO8xzQJP1Y/ndUVPEycNlNB2puWDGdPDJ8d4DxDTEj
+    subject: bpteague
+    repo: cytoflow
+    package: cytoflow
+    version: latest
+    publish: true
+    override: true
+    explode: false
+    on:
+        branch: packaging
+        
+  - provider: BinTray
+    username: bpteague
+    api_key:
+      secure: BLgrF3vno40XZMvXZ+DGzxeO8xzQJP1Y/ndUVPEycNlNB2puWDGdPDJ8d4DxDTEj
+    subject: bpteague
+    repo: cytoflow
+    package: cytoflow
+    version: latest
+    publish: true
+    override: true
+    explode: false
+    on:
+        branch: python3

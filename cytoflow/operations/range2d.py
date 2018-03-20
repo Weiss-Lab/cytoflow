@@ -1,16 +1,51 @@
-from traits.api import HasStrictTraits, CFloat, Str, CStr
-from traits.has_traits import provides
-from cytoflow.operations.i_operation import IOperation
+#!/usr/bin/env python3.4
+# coding: latin-1
+
+# (c) Massachusetts Institute of Technology 2015-2017
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+'''
+cytoflow.operations.range2d
+---------------------------
+'''
+
+import pandas as pd
+
+from traits.api import HasStrictTraits, Float, Str, Bool, Instance, \
+    provides, on_trait_change, Any, Constant
+
+from matplotlib.widgets import RectangleSelector
+import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
+
+import cytoflow.utility as util
+from cytoflow.views import ScatterplotView, ISelectionView
+
+from .i_operation import IOperation
+from .base_op_views import Op2DView
 
 @provides(IOperation)
 class Range2DOp(HasStrictTraits):
-    """Apply a range gate to a cytometry experiment.
+    """
+    Apply a 2D range gate to a cytometry experiment.
     
     Attributes
     ----------
     name : Str
         The operation name.  Used to name the new metadata field in the
-        experiment that's created by apply()
+        experiment that's created by :meth:`apply`
         
     xchannel : Str
         The name of the first channel to apply the range gate.
@@ -29,47 +64,77 @@ class Range2DOp(HasStrictTraits):
         
     yhigh : Float
         The highest value in ychannel to include in this gate.
+        
+   
+    Examples
+    --------
+    
+    .. plot::
+        :context: close-figs
+        
+        Make a little data set.
+    
+        >>> import cytoflow as flow
+        >>> import_op = flow.ImportOp()
+        >>> import_op.tubes = [flow.Tube(file = "Plate01/RFP_Well_A3.fcs",
+        ...                              conditions = {'Dox' : 10.0}),
+        ...                    flow.Tube(file = "Plate01/CFP_Well_A4.fcs",
+        ...                              conditions = {'Dox' : 1.0})]
+        >>> import_op.conditions = {'Dox' : 'float'}
+        >>> ex = import_op.apply()
+    
+    Create and parameterize the operation.
+    
+    .. plot::
+        :context: close-figs
+        
+        >>> r = flow.Range2DOp(name = "Range2D",
+        ...                    xchannel = "V2-A",
+        ...                    xlow = 10,
+        ...                    xhigh = 1000,
+        ...                    ychannel = "Y2-A",
+        ...                    ylow = 1000,
+        ...                    yhigh = 20000)
+  
+        
+    Show the default view.  
+
+    .. plot::
+        :context: close-figs
+            
+        >>> r.default_view(huefacet = "Dox",
+        ...                xscale = 'log',
+        ...                yscale = 'log').plot(ex)
+        
+    Apply the gate, and show the result
+    
+    .. plot::
+        :context: close-figs
+        
+        >>> ex2 = r.apply(ex)
+        >>> ex2.data.groupby('Range2D').size()
+        Range2D
+        False    16405
+        True      3595
+        dtype: int64
+        
     """
     
     # traits
-    id = "edu.mit.synbio.cytoflow.operations.range2d"
-    friendly_id = "2D Range"
+    id = Constant('edu.mit.synbio.cytoflow.operations.range2d')
+    friendly_id = Constant("2D Range")
     
-    name = CStr()
+    name = Str
     
-    xchannel = Str()
-    xlow = CFloat()
-    xhigh = CFloat()
+    xchannel = Str
+    xlow = Float
+    xhigh = Float
     
-    ychannel = Str()
-    ylow = CFloat()
-    yhigh = CFloat()
-    
-    def is_valid(self, experiment):
-        """Validate this operation against an experiment."""
-        
-        if not self.xchannel or not self.ychannel:
-            return False
-        
-        if (not self.xchannel in experiment.channels or
-            not self.ychannel in experiment.channels):
-            return False
-        
-        if (self.xlow < experiment[self.xchannel].min() or
-            self.xhigh > experiment[self.xchannel].max() or
-            self.ylow < experiment[self.ychannel].min() or
-            self.yhigh > experiment[self.ychannel].max()):
-            return False
-        
-        if not self.name:
-            return False
-               
-        if self.name in self.experiment.columns:
-            return False
-       
-        return True
-        
-    def apply(self, old_experiment):
+    ychannel = Str
+    ylow = Float
+    yhigh = Float
+
+    def apply(self, experiment):
         """Applies the threshold to an experiment.
         
         Parameters
@@ -79,34 +144,198 @@ class Range2DOp(HasStrictTraits):
             
         Returns
         -------
-            a new experiment, the same as old_experiment but with a new
-            column the same as the operation name.  The bool is True if the
-            event's measurement in self.channel is greater than self.low and
-            less than self.high; it is False otherwise.
+        Experiment
+            a new :class:`~Experiment`, the same as the old experiment but with 
+            a new column with a data type of ``bool`` and the same as the 
+            operation :attr:`name`.  The bool is ``True`` if the event's 
+            measurement in :attr:`xchannel` is greater than :attr:`xlow` and
+            less than :attr:`high`, and the event's measurement in 
+            :attr:`ychannel` is greater than :attr:`ylow` and less than 
+            :attr:`yhigh`; it is ``False`` otherwise.
         """
+        
+        if experiment is None:
+            raise util.CytoflowOpError('experiment',
+                                       "No experiment specified")
         
         # make sure name got set!
         if not self.name:
-            raise RuntimeError("You have to set the Threshold gate's name "
-                               "before applying it!")
+            raise util.CytoflowOpError('name',
+                                       "You have to set the gate's name "
+                                       "before applying it!")
         
         # make sure old_experiment doesn't already have a column named self.name
-        if(self.name in old_experiment.data.columns):
-            raise RuntimeError("Experiment already contains a column {0}"
-                               .format(self.name))
+        if(self.name in experiment.data.columns):
+            raise util.CytoflowOpError('name',
+                                       "Experiment already contains a column {0}"
+                                       .format(self.name))
         
+        if not self.xchannel or not self.ychannel:
+            raise util.CytoflowOpError('xchannel',
+                                       "Must specify xchannel")
+
+        if not self.xchannel in experiment.channels:
+            raise util.CytoflowOpError('xchannel',
+                                       "xchannel isn't in the experiment")
+
+        if not self.ychannel:
+            raise util.CytoflowOpError('ychannel',
+                                       "Must specify ychannel")
         
-        new_experiment = old_experiment.clone()
-        x = new_experiment[self.xchannel].between(self.xlow, self.xhigh)
-        y = new_experiment[self.ychannel].between(self.ylow, self.yhigh)
-        new_experiment[self.name] = x & y
+        if not self.ychannel in experiment.channels:
+            raise util.CytoflowOpError('ychannel',
+                                       "ychannel isn't in the experiment")
         
-        new_experiment.conditions[self.name] = "bool"
-        new_experiment.metadata[self.name] = {}
-        
-#             pd.Series(new_experiment[self.xchannel] > self.xlow &
-#                       new_experiment[self.xchannel] < self.xhigh &
-#                       new_experiment[self.ychannel] > self.ylow &
-#                       new_experiment[self.ychannel] < self.yhigh)
+        if self.xhigh <= experiment[self.xchannel].min():
+            raise util.CytoflowOpError('xhigh',
+                                       "x channel range high must be > {0}"
+                                       .format(experiment[self.xchannel].min()))
+        if self.xlow >= experiment[self.xchannel].max():
+            raise util.CytoflowOpError('xlow',
+                                       "x channel range low must be < {0}"
+                                       .format(experiment[self.xchannel].max()))
             
+        if self.yhigh <= experiment[self.ychannel].min():
+            raise util.CytoflowOpError('yhigh',
+                                       "y channel range high must be > {0}"
+                                       .format(experiment[self.ychannel].min()))
+        if self.ylow >= experiment[self.ychannel].max():
+            raise util.CytoflowOpError('ylow',
+                                       "y channel range low must be < {0}"
+                                       .format(experiment[self.ychannel].max()))
+        
+        x = experiment[self.xchannel].between(self.xlow, self.xhigh)
+        y = experiment[self.ychannel].between(self.ylow, self.yhigh)
+        gate = pd.Series(x & y)
+        
+        new_experiment = experiment.clone() 
+        new_experiment.add_condition(self.name, "bool", gate)   
+        new_experiment.history.append(self.clone_traits(transient = lambda t: True))    
         return new_experiment
+    
+    def default_view(self, **kwargs):
+        return RangeSelection2D(op = self, **kwargs)
+    
+@provides(ISelectionView)
+class RangeSelection2D(Op2DView, ScatterplotView):
+    """
+    Plots, and lets the user interact with, a 2D selection.
+    
+    Attributes
+    ----------
+    interactive : Bool
+        is this view interactive?  Ie, can the user set min and max
+        with a mouse drag?
+        
+    Notes
+    -----
+    We inherit `xfacet` and `yfacet` from `cytoflow.views.ScatterplotView`, but
+    they must both be unset!
+        
+    Examples
+    --------
+    
+    In a Jupyter notebook with `%matplotlib notebook`
+    
+    >>> r = flow.Range2DOp(name = "Range2D",
+    ...                    xchannel = "V2-A",
+    ...                    ychannel = "Y2-A"))
+    >>> rv = r.default_view()
+    >>> rv.interactive = True
+    >>> rv.plot(ex2) 
+    """
+    
+    id = Constant('edu.mit.synbio.cytoflow.views.range2d')
+    friendly_id = Constant("2D Range Selection")
+
+    xfacet = Constant(None)
+    yfacet = Constant(None)
+    
+    xscale = util.ScaleEnum
+    yscale = util.ScaleEnum
+    
+    interactive = Bool(False, transient = True)
+    
+    # internal state.
+    _ax = Any(transient = True)
+    _selector = Instance(RectangleSelector, transient = True)
+    _box = Instance(Rectangle, transient = True)
+        
+    def plot(self, experiment, **kwargs):
+        """
+        Plot the underlying scatterplot and then plot the selection on top of it.
+        
+        Parameters
+        ----------
+        
+        """
+        
+        if experiment is None:
+            raise util.CytoflowViewError('experiment',
+                                         "No experiment specified")
+        
+        super(RangeSelection2D, self).plot(experiment, **kwargs)
+        self._ax = plt.gca()
+        self._draw_rect()
+        self._interactive()
+
+    @on_trait_change('op.xlow, op.xhigh, op.ylow, op.yhigh', post_init = True)
+    def _draw_rect(self):
+        if not self._ax:
+            return
+        
+        if self._box and self._box in self._ax.patches:
+            self._box.remove()
+            
+        if self.op.xlow and self.op.xhigh and self.op.ylow and self.op.yhigh:
+            self._box = Rectangle((self.op.xlow, self.op.ylow), 
+                                  (self.op.xhigh - self.op.xlow), 
+                                  (self.op.yhigh - self.op.ylow), 
+                                  facecolor="grey",
+                                  alpha = 0.2)
+            self._ax.add_patch(self._box)
+            plt.draw()
+    
+    @on_trait_change('interactive', post_init = True)
+    def _interactive(self):
+        if self._ax and self.interactive:
+            self._selector = RectangleSelector(
+                                self._ax, 
+                                onselect=self._onselect, 
+                                rectprops={'alpha':0.2,
+                                           'color':'grey'},
+                                useblit = True)
+        else:
+            self._selector = None
+        
+    
+    def _onselect(self, pos1, pos2): 
+        """Update selection traits"""
+        self.op.xlow = min(pos1.xdata, pos2.xdata)
+        self.op.xhigh = max(pos1.xdata, pos2.xdata)
+        self.op.ylow = min(pos1.ydata, pos2.ydata)
+        self.op.yhigh = max(pos1.ydata, pos2.ydata)
+        
+util.expand_class_attributes(RangeSelection2D)
+util.expand_method_parameters(RangeSelection2D, RangeSelection2D.plot) 
+    
+if __name__ == '__main__':
+    import cytoflow as flow
+    
+    tube1 = flow.Tube(file = '../../cytoflow/tests/data/Plate01/RFP_Well_A3.fcs',
+                      conditions = {"Dox" : 10.0})
+    
+    tube2 = flow.Tube(file = '../../cytoflow/tests/data/Plate01/CFP_Well_A4.fcs',
+                      conditions = {"Dox" : 1.0})                      
+
+    ex = flow.ImportOp(conditions = {"Dox" : "float"}, tubes = [tube1, tube2])
+    
+    r = flow.Range2DOp(xchannel = "V2-A",
+                       ychannel = "Y2-A")
+    rv = r.default_view()
+    
+    plt.ioff()
+    rv.plot(ex)
+    rv.interactive = True
+    plt.show()
+    print("x:({0}, {1})  y:({2}, {3})".format(r.xlow, r.xhigh, r.ylow, r.yhigh))

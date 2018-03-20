@@ -1,5 +1,28 @@
-from traits.etsconfig.api import ETSConfig
-ETSConfig.toolkit = 'qt4'
+#!/usr/bin/env python3.4
+# coding: latin-1
+
+# (c) Massachusetts Institute of Technology 2015-2017
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+# for local debugging
+if __name__ == '__main__':
+    from traits.etsconfig.api import ETSConfig
+    ETSConfig.toolkit = 'qt4'
+
+    import os
+    os.environ['TRAITS_DEBUG'] = "1"
 
 from pyface.qt import QtGui
 
@@ -7,11 +30,7 @@ from traits.api \
     import HasTraits, HasPrivateTraits, Instance, List, Str, Bool, Property, \
     Any, cached_property, Int
 
-from traitsui.api import UI
-
-from traitsui.editor \
-    import Editor
-
+from traitsui.api import UI, Editor
 
 class VerticalNotebookPage(HasPrivateTraits):
     """ 
@@ -45,6 +64,9 @@ class VerticalNotebookPage(HasPrivateTraits):
     # The name of the *description_object* trait that signals a page description
     # change [Set by client]
     description_object_trait = Str
+
+    # The icon for the page open/closed button
+    icon = Int(QtGui.QStyle.SP_ArrowRight)
     
     # The HasTraits object whose trait we look at to set the page icon
     icon_object = Instance(HasTraits)
@@ -52,8 +74,15 @@ class VerticalNotebookPage(HasPrivateTraits):
     # The name of the *icon_object* trait that signals an icon change
     icon_object_trait = Str
     
-    # The icon for the page open/closed button
-    icon = Int(QtGui.QStyle.SP_ArrowRight)
+    # If the notebook has "delete" buttons, can this page be deleted?
+    deletable = Bool(False)
+    
+    # The HasTraits object whose trait we look at to set the delete button
+    # enabled or disabled
+    deletable_object = Instance(HasTraits)
+    
+    # The name of the *deletable_object* trait that signals a deletable change
+    deletable_object_trait = Str
 
     # The parent window for the client page [Get by client]:
     parent = Property
@@ -80,10 +109,9 @@ class VerticalNotebookPage(HasPrivateTraits):
     # the control representing the command button.  need to keep it around
     # so we can update its name, desc, and icon dynamaically
     cmd_button = Instance(QtGui.QCommandLinkButton)
-
-    # The control representing the button that opens and closes the control
-    #button = Property
-    #close_button = Property
+    
+    # the control representing the "delete" button, if the notebook has them
+    del_button = Instance(QtGui.QPushButton)
 
     #-- Public Methods -------------------------------------------------------
 
@@ -99,6 +127,7 @@ class VerticalNotebookPage(HasPrivateTraits):
         self.on_trait_change(self._on_name_changed, 'name', dispatch = 'ui')
         self.on_trait_change(self._on_description_changed, 'description', dispatch = 'ui')
         self.on_trait_change(self._on_icon_changed, 'icon', dispatch = 'ui')
+        self.on_trait_change(self._on_deletable_changed, 'deletable', dispatch = 'ui')
 
     def dispose(self):
         """ Removes this notebook page. """
@@ -135,25 +164,19 @@ class VerticalNotebookPage(HasPrivateTraits):
                              'icon', 
                              dispatch = 'ui',
                              remove = True)
-        
+
+        self.on_trait_change(self._on_deletable_changed, 
+                             'deletable', 
+                             dispatch = 'ui',
+                             remove = True)
+
         # make sure we dispose of the child ui properly
         if self.ui is not None:
             self.ui.dispose()
             self.ui = None
-        
-        # and clean up all the widgets
-        buttons_container = self.layout.takeAt(0).widget()
-        buttons_layout = buttons_container.layout()
-        
-        while buttons_layout.count() > 0:
-            child = buttons_layout.takeAt(0)
-            child.widget().setParent(None)
-            
-        buttons_container.setParent(None)
-        
-        while self.layout.count() > 0:
-            child = self.layout.takeAt(0)
-            child.widget().setParent(None)
+
+        # this cleans up all the widgets in this control's layout
+        self.control.deleteLater()
 
     def register_name_listener(self, model, trait):
         """ 
@@ -198,6 +221,21 @@ class VerticalNotebookPage(HasPrivateTraits):
         
         # make sure the icon gets initialized
         self._icon_updated()
+        
+    def register_deletable_listener(self, model, trait):
+        """
+        Registers a listener on the specified object trait for the delete
+        button enable/disable
+        """
+        
+        # save the info so we can unregister it later
+        self.deletable_object, self.deletable_object_trait = model, trait
+        
+        # register the listener
+        self.deletable_object.on_trait_change(self._deletable_updated, trait)
+        
+        # make sure the bool gets initialized
+        self._deletable_updated()
 
     def _handle_page_toggle(self):
         if self.is_open:
@@ -237,13 +275,16 @@ class VerticalNotebookPage(HasPrivateTraits):
         buttons_layout.addWidget(self.cmd_button)
         
         if self.notebook.delete:
-            del_button = QtGui.QPushButton(buttons_container)
-            del_button.setVisible(True)
-            del_button.setFlat(True)
-            del_button.setIcon(del_button.style().standardIcon(QtGui.QStyle.SP_TitleBarCloseButton))
-            del_button.clicked.connect(self._handle_close_button)
+            self.del_button = QtGui.QPushButton(buttons_container)
+            self.del_button.setVisible(True)
+            self.del_button.setFlat(True)
+            self.del_button.setEnabled(self.deletable)
+            self.del_button.setIcon(self.del_button.style().standardIcon(QtGui.QStyle.SP_TitleBarCloseButton))
+            self.del_button.clicked.connect(self._handle_close_button)
             
-            buttons_layout.addWidget(del_button)
+            buttons_layout.addWidget(self.del_button)
+            
+        buttons_layout.addStretch(1)
         buttons_container.setLayout(buttons_layout)
         
         self.layout.addWidget(buttons_container)
@@ -278,9 +319,7 @@ class VerticalNotebookPage(HasPrivateTraits):
                 self.icon = QtGui.QStyle.SP_ArrowDown
             else:
                 self.icon = QtGui.QStyle.SP_ArrowRight
-        
-        self.ui.control.setVisible(is_open)        
-        
+                
     def _on_name_changed(self, name):
         """ 
         Handles the name trait being changed.
@@ -295,6 +334,10 @@ class VerticalNotebookPage(HasPrivateTraits):
     def _on_icon_changed(self, icon):
         if self.cmd_button:
             self.cmd_button.setIcon(self.cmd_button.style().standardIcon(icon))
+        
+    def _on_deletable_changed(self, deletable):
+        if self.del_button:
+            self.del_button.setEnabled(deletable)
         
     def _name_updated(self):
         """ 
@@ -367,6 +410,30 @@ class VerticalNotebookPage(HasPrivateTraits):
         else:
             self.icon = getattr(self.icon_object, self.icon_object_trait, None)
 
+    def _deletable_updated(self):
+        """
+        Handles the signal that the associated object's deletable state has changed.
+        """
+        nb = self.notebook
+        handler_deletable = None
+         
+        method = None
+        editor = nb.editor
+        if editor is not None:
+            method = getattr(editor.ui.handler,
+                             '%s_%s_page_deletable' % 
+                             (editor.object_name, editor.name),
+                             None)
+         
+        if method is not None:
+            handler_deletable = method(editor.ui.info, self.deletable_object)
+             
+        if handler_deletable is not None:
+            self.deletable = handler_deletable
+        else:
+            self.deletable = getattr(self.deletable_object, self.deletable_object_trait, False)
+
+
 #-------------------------------------------------------------------------
 #  'VerticalNotebook' class:
 #-------------------------------------------------------------------------
@@ -385,9 +452,6 @@ class VerticalNotebook(HasPrivateTraits):
     
     # can the editor delete list items?
     delete = Bool(False)
-
-    # Should the notebook be scrollable?
-    scrollable = Bool(False)
 
     # The pages contained in the notebook:
     pages = List(VerticalNotebookPage)
@@ -411,21 +475,9 @@ class VerticalNotebook(HasPrivateTraits):
         """
 
         self.layout = QtGui.QVBoxLayout()
-        self.layout.setSizeConstraint(QtGui.QLayout.SetFixedSize)
 
-        # Create the correct type of window based on whether or not it should
-        # be scrollable:
-        if self.scrollable:
-            self.control = QtGui.QScrollArea()
-            self.control.setFrameShape(QtGui.QFrame.NoFrame)
-            self.control.setWidgetResizable(True)
-
-            panel = QtGui.QWidget()
-            panel.setLayout(self.layout)
-            self.control.setWidget(panel)
-        else:
-            self.control = QtGui.QWidget()
-            self.control.setLayout(self.layout)
+        self.control = QtGui.QWidget()
+        self.control.setLayout(self.layout)
 
         return self.control
 
@@ -500,14 +552,15 @@ class VerticalNotebook(HasPrivateTraits):
 
         for page in self.pages:
             self.layout.addWidget(page.control)
-
+            
+        self.layout.addStretch(1)
         self.control.setUpdatesEnabled(True)
 
 
 if __name__ == '__main__':
 
     from traitsui.api import View, Group, Item
-    from vertical_notebook_editor import VerticalNotebookEditor
+    from .vertical_notebook_editor import VerticalNotebookEditor
 
     class TestPageClass(HasTraits):
         trait1 = Str
@@ -532,7 +585,7 @@ if __name__ == '__main__':
                      )),
                     resizable = True)
 
-    from event_tracer import record_events 
+    from .event_tracer import record_events 
     import os
             
     with record_events() as container:

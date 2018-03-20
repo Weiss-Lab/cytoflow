@@ -1,3 +1,21 @@
+#!/usr/bin/env python3.4
+# coding: latin-1
+
+# (c) Massachusetts Institute of Technology 2015-2017
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 from pyface.qt import QtGui, QtCore
 
 class RangeSlider(QtGui.QSlider):
@@ -61,7 +79,7 @@ class RangeSlider(QtGui.QSlider):
 
         hasPainted = False
 
-        for i, value in self.sliderOrderForPaint():
+        for _, value in self.sliderOrderForPaint():
             opt = QtGui.QStyleOptionSlider()
             self.initStyleOption(opt)
 
@@ -125,6 +143,7 @@ class RangeSlider(QtGui.QSlider):
                 self.setRepeatAction(self.SliderNoAction)
         else:
             event.ignore()
+            
 
     def mouseMoveEvent(self, event):
         if self.pressed_control != QtGui.QStyle.SC_SliderHandle:
@@ -162,6 +181,10 @@ class RangeSlider(QtGui.QSlider):
         self.update()
 
         self.emit(QtCore.SIGNAL('sliderMoved(int)'), new_pos)
+        
+    def mouseReleaseEvent(self, event):
+        event.accept()
+        self.emit(QtCore.SIGNAL('sliderReleased()'))
 
     def __pick(self, pt):
         if self.orientation() == QtCore.Qt.Horizontal:
@@ -195,7 +218,7 @@ class RangeSlider(QtGui.QSlider):
 if __name__ == "__main__":
     import sys
     def echo(value):
-        print value
+        print(value)
     app = QtGui.QApplication(sys.argv)
     slider = RangeSlider()
     slider.setMinimum(0)
