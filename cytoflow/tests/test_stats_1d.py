@@ -24,11 +24,10 @@ Created on Dec 1, 2015
 
 import unittest
 
-import matplotlib
-matplotlib.use('Agg')
-
 import cytoflow as flow
-from cytoflow.tests.test_base import ImportedDataTest
+import cytoflow.utility as util
+
+from test_base import ImportedDataTest  # @UnresolvedImport
 
 class Test1DStats(ImportedDataTest):
 
@@ -55,6 +54,19 @@ class Test1DStats(ImportedDataTest):
         
     def testPlot(self):
         self.view.plot(self.ex)
+        
+    def testBadErrorStat(self):
+        self.ex = flow.ChannelStatisticOp(name = "ByDox_BAD",
+                                          channel = "Y2-A",
+                                          by = ['Dox'],
+                                          function = flow.geom_sd_range).apply(self.ex)
+                                     
+        self.view = flow.Stats1DView(statistic = ("ByDox", "geom_mean"),
+                                     error_statistic = ("ByDox_BAD", "geom_sd_range"),
+                                     variable = "Dox",
+                                     huefacet = "T")
+        
+        self.assertRaises(util.CytoflowViewError, self.view.plot, self.ex)
         
     def testXfacet(self):
         self.view.huefacet = ""
@@ -129,7 +141,6 @@ class Test1DStats(ImportedDataTest):
     def testVariableLim(self):
         self.view.plot(self.ex, variable_lim = (2, 5))
         
-        
     def testLineStyle(self):
         self.view.plot(self.ex, linestyle = 'solid')
         self.view.plot(self.ex, linestyle = 'dashed')
@@ -147,11 +158,20 @@ class Test1DStats(ImportedDataTest):
             
     def testMarkerSize(self):
         self.view.plot(self.ex, markersize = 10)
+
+    def testCapSize(self):
+        self.view.plot(self.ex, capsize = 10)
         
     def testAlpha(self):
         self.view.plot(self.ex, alpha = 0.33)
         
+    def testShadeX(self):
+        self.view.plot(self.ex, shade_error = True, orientation = 'horizontal')
+        
+    def testShadeY(self):
+        self.view.plot(self.ex, shade_error = True)
+        
 
 if __name__ == "__main__":
-#     import sys;sys.argv = ['', 'Test1DStats.testColWrap']
+    import sys;sys.argv = ['', 'Test1DStats.testBadErrorStat']
     unittest.main()

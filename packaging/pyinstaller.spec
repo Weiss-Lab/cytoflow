@@ -11,34 +11,24 @@ a = Analysis(['../cytoflowgui/run.py'],
                     ('../cytoflowgui/view_plugins/images', 'cytoflowgui/view_plugins/images'),
                     ('../cytoflowgui/help', 'cytoflowgui/help')],
              hiddenimports = [
-                 'packaging.qt',
-                 'matplotlib.backends.backend_qt4agg',
+                 'matplotlib.backends.backend_qt5agg',
                  'matplotlib_backend',
-                 'sklearn.neighbors.ball_tree',
-                 'sklearn.neighbors.kd_tree',
-                 'sklearn.neighbors.dist_metrics',
-                 'sklearn.neighbors.typedefs'
              ],
              hookspath=['packaging'],
-             runtime_hooks=['packaging/rthook_pyqt4.py',
-                            'packaging/rthook_qtapi.py',
-                            'packaging/rthook_override_pyface_qt.py',
-                            'packaging/rthook_seaborn.py'],
+             runtime_hooks=['packaging/rthook_qtapi.py',
+                            'packaging/rthook_seaborn.py'
+                            ],
              excludes=['gi.repository.Gio', 'gi.repository.GModule',
                        'gi.repository.GObject', 'gi.repository.Gtk',
                        'gi.repository.Gdk', 'gi.repository.Atk',
                        'gi.repository.cairo', 'gi.repository.GLib',
-                       'gobject', 'Tkinter', 'FixTk', 'PyQt5',
+                       'gobject', 'Tkinter', 'FixTk', '_tkinter',
                        'PySide', 'PySide.QtCore', 'PySide.QtGui',
                        'PySide.QtNetwork', 'PySide.QtSvg',
-                       'pyface.wx', 'traitsui.wx', 'OpenGL',
-                       'OpenGL.GLUT', 'OpenGL.platform',
-                       'IPython', 'PyQt4.QtAssistant',
-                       'PyQt4.QtSql', 'PyQt4.QtXml', 'PyQt4.QtTest', 
-                       'PyQt4.QtOpenGL', 'wx',
+                       'pyface.wx', 'traitsui.wx', 'IPython','wx',
                        'gtk', 'gi', 'sphinx', 'twisted', 'zope',
                        'jinja2', 'httplib2', '_mysql',
-                       'sqlalchemy'],
+                       'sqlalchemy', 'zmq'],
              win_no_prefer_redirects=False,
              win_private_assemblies=False,
              cipher=None)
@@ -47,7 +37,7 @@ a = Analysis(['../cytoflowgui/run.py'],
 # versions
 
 remove_strs = ["glib", "gobject", "gthread", "libX", "libICE", "libdrm", 
-               "fontconfig"]
+               "fontconfig", "__pycache__"]
 
 lol = [ [x for x in a.binaries if x[0].find(y) >= 0] for y in remove_strs]
 remove_items = [item for sublist in lol for item in sublist]
@@ -69,7 +59,7 @@ exe = EXE(pyz,
           a.binaries,
           a.zipfiles,
           a.datas,
-#           [ ('v', None, 'OPTION') ],  # enable for more verbosity on starup
+#          [ ('v', None, 'OPTION') ],  # enable for more verbosity on starup
           name='cytoflow',
           debug=False,
           strip=False,

@@ -23,7 +23,7 @@ cytoflow.operations.bleedthrough_linear
 import os, math
 
 from traits.api import HasStrictTraits, Str, File, Dict, Instance, \
-                       Constant, Tuple, Float, provides
+                       Constant, Tuple, Float, Any, provides
     
 import numpy as np
 import pandas as pd
@@ -72,6 +72,13 @@ class BleedthroughLinearOp(HasStrictTraits):
         ``("channel1", "channel2")`` is present as a key, 
         ``("channel2", "channel1")`` must also be present.  The module does not
         assume that the matrix is symmetric.
+        
+    control_conditions : Dict(Str, Dict(Str, Any))
+        Occasionally, you'll need to specify the experimental conditions that
+        the bleedthrough tubes were collected under (to apply the operations in the 
+        history.)  Specify them here.  The key is the channel name; they value
+        is a dictionary of the conditions (same as you would specify for a
+        :class:`~.Tube` )
 
     Examples
     --------
@@ -119,6 +126,10 @@ class BleedthroughLinearOp(HasStrictTraits):
     
     Plot the diagnostic plot
     
+    .. note::
+       The diagnostic plots look really bad in the online documentation.
+       They're better in a real-world example, I promise!
+    
     .. plot::
         :context: close-figs
 
@@ -141,6 +152,9 @@ class BleedthroughLinearOp(HasStrictTraits):
 
     controls = Dict(Str, File)
     spillover = Dict(Tuple(Str, Str), Float)
+    control_conditions = Dict(Str, Dict(Str, Any), {})
+    
+    _sample = Dict(Str, Any, transient = True)
     
     def estimate(self, experiment, subset = None): 
         """
@@ -162,16 +176,31 @@ class BleedthroughLinearOp(HasStrictTraits):
                                            "Can't find file {0} for channel {1}."
                                            .format(self.controls[channel], channel))
                 
+        self.spillover.clear()
+        self._sample.clear()
+                
         for channel in channels:
             
             # make a little Experiment
             check_tube(self.controls[channel], experiment)
-            tube_exp = ImportOp(tubes = [Tube(file = self.controls[channel])],
+            tube_conditions = self.control_conditions[channel] if channel in self.control_conditions else {}
+            exp_conditions = {k: experiment.data[k].dtype.name for k in tube_conditions.keys()}
+
+            tube_exp = ImportOp(tubes = [Tube(file = self.controls[channel],
+                                              conditions = tube_conditions)],
+                                conditions = exp_conditions,
                                 channels = {experiment.metadata[c]["fcs_name"] : c for c in experiment.channels},
                                 name_metadata = experiment.metadata['name_metadata']).apply()
             
             # apply previous operations
             for op in experiment.history:
+                if hasattr(op, 'by'):
+                    for by in op.by:
+                        if 'experiment' in experiment.metadata[by]:
+                            raise util.CytoflowOpError('experiment',
+                                                       "Prior to applying this operation, "
+                                                       "you must not apply any operation with 'by' "
+                                                       "set to an experimental condition.")
                 tube_exp = op.apply(tube_exp)
                 
             # subset it
@@ -192,6 +221,9 @@ class BleedthroughLinearOp(HasStrictTraits):
                 
             # polyfit requires sorted data
             tube_data.sort_values(channel, inplace = True)
+            
+            # save a little of the data to plot later
+            self._sample[channel] = tube_data.sample(n = 1000)
 
             from_channel = channel
             
@@ -318,7 +350,9 @@ class BleedthroughLinearOp(HasStrictTraits):
             raise util.CytoflowOpError('controls',
                                        "Must have both the controls and bleedthrough to plot")
 
-        return BleedthroughLinearDiagnostic(op = self, **kwargs)
+        v = BleedthroughLinearDiagnostic(op = self)
+        v.trait_set(**kwargs)
+        return v
     
 @provides(cytoflow.views.IView)
 class BleedthroughLinearDiagnostic(HasStrictTraits):
@@ -379,30 +413,7 @@ class BleedthroughLinearDiagnostic(HasStrictTraits):
                 if from_idx == to_idx:
                     continue
                 
-                check_tube(self.op.controls[from_channel], experiment)
-                tube_exp = ImportOp(tubes = [Tube(file = self.op.controls[from_channel])],
-                                    channels = {experiment.metadata[c]["fcs_name"] : c for c in experiment.channels},
-                                    name_metadata = experiment.metadata['name_metadata']).apply()
-                
-                # apply previous operations
-                for op in experiment.history:
-                    tube_exp = op.apply(tube_exp)
-                    
-                # subset it
-                if self.subset:
-                    try:
-                        tube_exp = tube_exp.query(self.subset)
-                    except Exception as e:
-                        raise util.CytoflowViewError('subset',
-                                                   "Subset string '{0}' isn't valid"
-                                              .format(self.subset)) from e
-                                    
-                    if len(tube_exp.data) == 0:
-                        raise util.CytoflowViewError('subset',
-                                                   "Subset string '{0}' returned no events"
-                                              .format(self.subset))
-                    
-                tube_data = tube_exp.data
+                tube_data = self.op._sample[from_channel]
                 
                 # for ReadTheDocs, which doesn't have swig
                 import sys
@@ -411,19 +422,19 @@ class BleedthroughLinearDiagnostic(HasStrictTraits):
                 else:
                     scale_name = 'logicle'
                 
-                xscale = util.scale_factory(scale_name, tube_exp, channel = from_channel)
-                yscale = util.scale_factory(scale_name, tube_exp, channel = to_channel)
+                xscale = util.scale_factory(scale_name, experiment, channel = from_channel)
+                yscale = util.scale_factory(scale_name, experiment, channel = to_channel)
 
                 plt.subplot(num_channels, 
                             num_channels, 
                             from_idx + (to_idx * num_channels) + 1)
-                plt.xscale(scale_name, **xscale.mpl_params)
-                plt.yscale(scale_name, **yscale.mpl_params)
+                plt.xscale(scale_name, **xscale.get_mpl_params(plt.gca().get_xaxis()))
+                plt.yscale(scale_name, **yscale.get_mpl_params(plt.gca().get_yaxis()))
                 plt.xlabel(from_channel)
                 plt.ylabel(to_channel)
                 plt.scatter(tube_data[from_channel],
                             tube_data[to_channel],
-                            alpha = 0.1,
+                            alpha = 1,
                             s = 1,
                             marker = 'o')
                 

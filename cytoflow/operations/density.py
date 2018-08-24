@@ -135,7 +135,7 @@ class DensityGateOp(HasStrictTraits):
         ...                              xscale = 'log',
         ...                              ychannel = 'SSC-A',
         ...                              yscale = 'log',
-        ...                              keep = 0.7)
+        ...                              keep = 0.5)
         
     Find the bins to keep
     
@@ -420,7 +420,9 @@ class DensityGateOp(HasStrictTraits):
             a diagnostic view, call :meth:`~DensityGateView.plot` to see the 
             diagnostic plot.
         """
-        return DensityGateView(op = self, **kwargs)
+        v = DensityGateView(op = self)
+        v.trait_set(**kwargs)
+        return v
           
 @provides(IView)
 class DensityGateView(By2DView, AnnotatingView, DensityView):

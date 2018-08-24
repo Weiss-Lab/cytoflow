@@ -187,8 +187,26 @@ class WorkflowItem(HasStrictTraits):
     def __repr__(self):
         return "<{}: {}>".format(self.__class__.__name__, self.operation.__class__.__name__)
     
-@camel_registry.dumper(WorkflowItem, 'workflow-item', version = 1)
+@camel_registry.dumper(WorkflowItem, 'workflow-item', version = 2)
 def _dump_wi(wi):
+                          
+    # we really don't need to keep copying around the fcs metadata
+    # it will still get saved out in the import op
+    if 'fcs_metadata' in wi.metadata:
+        del wi.metadata['fcs_metadata']
+                            
+    return dict(deletable = wi.deletable,
+                operation = wi.operation,
+                views = wi.views,
+                channels = wi.channels,
+                conditions = wi.conditions,
+                metadata = wi.metadata,
+                statistics = wi.statistics,
+                current_view = wi.current_view,
+                default_view = wi.default_view)
+    
+@camel_registry.dumper(WorkflowItem, 'workflow-item', version = 1)
+def _dump_wi_v1(wi):
                             
     return dict(deletable = wi.deletable,
                 operation = wi.operation,
@@ -202,7 +220,7 @@ def _dump_wi(wi):
 
 
 @camel_registry.loader('workflow-item', version = 1)
-def _load_wi(data, version):
+def _load_wi_v1(data, version):
     
     data['statistics'] = {tuple(k) : pd.Series() for k in data['statistics']}
     
@@ -210,6 +228,9 @@ def _load_wi(data, version):
         
     return ret
 
+@camel_registry.loader('workflow-item', version = 2)
+def _load_wi(data, version):
+    return WorkflowItem(**data)
     
 class RemoteWorkflowItem(WorkflowItem):
     
@@ -221,6 +242,12 @@ class RemoteWorkflowItem(WorkflowItem):
         with warnings.catch_warnings(record = True) as w:
             try:    
                 self.status = "estimating"
+                
+                try:
+                    plt.gcf().canvas.set_working(True)
+                except AttributeError:
+                    pass
+
                 self.operation.estimate(prev_result)
 
                 self.estimate_error = ""
@@ -236,6 +263,13 @@ class RemoteWorkflowItem(WorkflowItem):
                 self.status = "invalid"
                 return False 
             
+            finally:
+                try:
+                    plt.gcf().canvas.set_working(False)
+                except AttributeError:
+                    pass
+                
+            
             
     def apply(self):
         """
@@ -249,6 +283,12 @@ class RemoteWorkflowItem(WorkflowItem):
         with warnings.catch_warnings(record = True) as w:
             try:    
                 self.status = "applying"
+                
+                try:
+                    plt.gcf().canvas.set_working(True)
+                except AttributeError:
+                    pass
+                
                 r = self.operation.apply(prev_result)
                 self.result = r
 
@@ -261,7 +301,6 @@ class RemoteWorkflowItem(WorkflowItem):
                     self.op_warning_trait = ""
                     
                 self.status = "valid"
-                return
             
             except CytoflowOpError as e:                
                 self.result = None
@@ -269,13 +308,17 @@ class RemoteWorkflowItem(WorkflowItem):
                     self.op_error_trait = e.args[0]
                 self.op_error = e.args[-1]    
                 self.status = "invalid"
-                return
                 
             except CytoflowError as e:
                 self.result = None
                 self.op_error = e.args[-1]    
                 self.status = "invalid"
-                return
+            
+            finally:
+                try:
+                    plt.gcf().canvas.set_working(False)
+                except AttributeError:
+                    pass
 
         
     def plot(self):              
@@ -306,7 +349,10 @@ class RemoteWorkflowItem(WorkflowItem):
                 self.plot_lock.acquire()                
                 self.matplotlib_events.clear()
                 
-                plt.clf()
+                try:
+                    plt.gcf().canvas.set_working(True)
+                except AttributeError:
+                    pass
                 
                 self.current_view.plot_wi(self)
                 self.view_error = ""
@@ -337,7 +383,12 @@ class RemoteWorkflowItem(WorkflowItem):
                 plt.clf()
                 plt.show() 
             finally:
-                self.matplotlib_events.set() 
+                self.matplotlib_events.set()
+                try:
+                    plt.gcf().canvas.set_working(False)
+                except AttributeError:
+                    pass
+                 
                 self.plot_lock.release()
 
                 if w:

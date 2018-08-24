@@ -19,6 +19,8 @@
 from setuptools import setup, find_packages, Extension
 import io, os, re
 
+import versioneer
+
 # sphinx is only required for building packages, not for end-users
 try:
     from sphinx.setup_command import BuildDoc
@@ -26,7 +28,6 @@ try:
 except ImportError:
     has_sphinx = False
     
-
 on_rtd = os.environ.get('READTHEDOCS', None) == 'True'
 no_logicle = os.environ.get('NO_LOGICLE', None) == 'True'
 
@@ -49,46 +50,43 @@ def read_file(*names, **kwargs):
         encoding=kwargs.get("encoding", "utf8")
     ) as fp:
         return fp.read()
-    
-def find_version(*file_paths):
-    version_file = read_file(*file_paths)
-    version_match = re.search(r"__version__ = ['\"]([^'\"]*)['\"]",
-                              version_file, re.M)
-    if version_match:
-        return version_match.group(1)
-    raise RuntimeError("Unable to find version string.")
 
 long_description = read_rst('README.rst')
 
+cmdclass = versioneer.get_cmdclass()  # @UndefinedVariable
+if has_sphinx:
+    cmdclass['build_sphinx'] = BuildDoc
+    
 setup(
     name = "cytoflow",
-    version = find_version("cytoflow", "__init__.py"),
-    packages = find_packages(),
-    cmdclass = {'build_sphinx': BuildDoc} if has_sphinx else {},
+    version = versioneer.get_version(),  # @UndefinedVariable
+    packages = find_packages(exclude = ["packaging", "packaging.qt"]),
+    cmdclass = cmdclass,
     
     # Project uses reStructuredText, so ensure that the docutils get
     # installed or upgraded on the target machine
-    install_requires = ['pandas==0.21.1',  
+    install_requires = ['numpy==1.13.3',
+                        'pandas==0.23.1',
+                        'matplotlib==2.2.2',  
                         'bottleneck==1.2.1',
-                        'numpy==1.11.3',
-                        'numexpr==2.6.4',
-                        'matplotlib==1.5.1',
-                        'scipy==1.0.0',
+                        'numexpr==2.6.5',
+                        'scipy==1.1.0',
                         'scikit-learn==0.19.1',
                         'seaborn==0.8.1',
                         'traits==4.6.0',
-                        'pyface==5.1.0',
-                        'traitsui==5.1.0',
-                        'nbformat==4.2.0',
-                        'python-dateutil==2.6.0',
-                        'statsmodels==0.8.0',
+                        'pyface==6.0.0',
+                        'traitsui==6.0.0',
+                        'nbformat==4.4.0',
+                        'python-dateutil==2.7.3',
+                        'statsmodels==0.9.0',
                         'envisage==4.6.0',
                         'camel==0.1.2',
-                        'yapf==0.20',
-                        'fcsparser==0.1.3'] 
-                if not on_rtd else None,
+                        'yapf==0.20.2',
+                        'fcsparser==0.2.0',
+                        'pyopengl==3.1.1a1'] 
+                if not on_rtd else ['sphinx==1.7.5'],
                         
-    # GUI also requires PyQt4 >= 4.11.4, but it's not available via pypi and 
+    # GUI also requires PyQt4 >= 5.9.2, but it's not available via pypi and 
     # distutils.  Install it locally!
                         
     # try to build the Logicle extension
@@ -106,7 +104,10 @@ setup(
     package_data = { 'cytoflowgui' : ['preferences.ini',
                                       'images/*.png',
                                       'op_plugins/images/*.png',
-                                      'view_plugins/images/*.png']},
+                                      'view_plugins/images/*.png',
+                                      'help/*.html',
+                                      'help/_images/*.png',
+                                      'help/_static/*']},
 
     # metadata for upload to PyPI
     author = "Brian Teague",
@@ -134,7 +135,7 @@ setup(
                  'Topic :: Scientific/Engineering :: Bio-Informatics',
                  'Topic :: Software Development :: Libraries :: Python Modules'],
     
-    entry_points={'console_scripts' : ['cf-channel_voltages = cytoflow.scripts.channel_voltages:main'],
-                  'gui_scripts' : ['cytoflow = cytoflowgui:run_gui'],
-                  'nose.plugins.0.10' : ['mplplugin = nose_plugins:MplPlugin']}
+    entry_points={'console_scripts' : ['cf-channel_voltages = cytoflow.scripts.channel_voltages:main',
+                                       'cf-fcs_metadata = cytoflow.scripts.fcs_metadata:main'],
+                  'gui_scripts' : ['cytoflow = cytoflowgui.run:run_gui']}
 )

@@ -16,7 +16,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from traits.api import Instance, List, on_trait_change, Str, Dict, Bool
+from traits.api import Instance, List, on_trait_change, Str, Dict, Bool, Tuple
 from pyface.tasks.api import TraitsDockPane, Task
 from pyface.action.api import ToolBarManager
 from pyface.tasks.action.api import TaskAction
@@ -24,6 +24,8 @@ from pyface.api import ImageResource
 from pyface.qt import QtGui, QtCore
 
 from cytoflowgui.view_plugins import IViewPlugin
+from cytoflowgui.util import HintedMainWindow
+    
 
 class ViewDockPane(TraitsDockPane):
     """
@@ -52,6 +54,9 @@ class ViewDockPane(TraitsDockPane):
     # is its view id
     default_view = Str
 
+    # IN INCHES
+    image_size = Tuple((0.33, 0.33))
+
     # task actions associated with views
     _actions = Dict(Str, TaskAction)
     
@@ -65,9 +70,13 @@ class ViewDockPane(TraitsDockPane):
         Create and return the toolkit-specific contents of the dock pane.
         """
         
+        dpi = self.control.physicalDpiX()
+        image_size = (int(self.image_size[0] * dpi),
+                      int(self.image_size[1] * dpi))
+        
         self.toolbar = ToolBarManager(orientation = 'vertical',
                                       show_tool_names = False,
-                                      image_size = (32, 32))
+                                      image_size = image_size)
         
         self._default_action = TaskAction(name = "Setup View",
                                           on_perform = lambda s=self: 
@@ -86,7 +95,7 @@ class ViewDockPane(TraitsDockPane):
             self._actions[plugin.view_id] = task_action
             self.toolbar.append(task_action)
             
-        self._window = window = QtGui.QMainWindow()
+        self._window = window = HintedMainWindow()
         window.addToolBar(QtCore.Qt.RightToolBarArea, 
                           self.toolbar.create_tool_bar(window))
         

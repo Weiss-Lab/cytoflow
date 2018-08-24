@@ -23,18 +23,15 @@ Created on Mar 5, 2018
 '''
 
 import unittest
-
-import matplotlib
-matplotlib.use('Agg')
-
 import cytoflow as flow
-from cytoflow.tests.test_base import ImportedDataTest
+
+from test_base import ImportedDataTest  # @UnresolvedImport
 
 class TestRadviz(ImportedDataTest):
 
     def setUp(self):
         ImportedDataTest.setUp(self)
-        self.view = flow.ParallelCoordinatesView(channels = ["B1-A", 'V2-A', 'Y2-A'])
+        self.view = flow.RadvizView(channels = ["B1-A", 'V2-A', 'Y2-A'])
         
     def testPlot(self):
         self.view.plot(self.ex)

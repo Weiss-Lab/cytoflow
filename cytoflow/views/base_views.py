@@ -174,9 +174,9 @@ class BaseView(HasStrictTraits):
         
         for ax in g.axes.flatten():
             if xscale:
-                ax.set_xscale(xscale.name, **xscale.mpl_params) 
+                ax.set_xscale(xscale.name, **xscale.get_mpl_params(ax.get_xaxis())) 
             if yscale:
-                ax.set_yscale(yscale.name, **yscale.mpl_params)
+                ax.set_yscale(yscale.name, **yscale.get_mpl_params(ax.get_yaxis()))
             if xlim:
                 ax.set_xlim(xlim)
             if ylim:
@@ -216,6 +216,7 @@ class BaseView(HasStrictTraits):
 
         cmap = kwargs.pop('cmap', None)
         norm = kwargs.pop('norm', None)
+        legend_data = kwargs.pop('legend_data', None)
         
         if legend:
             if cmap and norm:
@@ -246,20 +247,30 @@ class BaseView(HasStrictTraits):
                                               label = huelabel)
                     plt.sca(plot_ax)
                 else:
-                    g.add_legend(title = huelabel)
+                    g.add_legend(title = huelabel, legend_data = legend_data)
                     ax = g.axes.flat[0]
                     legend = ax.legend_
-                    for lh in legend.legendHandles:
-                        lh.set_alpha(0.5)
+                    self._update_legend(legend)
+#                     for lh in legend.legendHandles:
+#                         lh.set_facecolor(lh.get_facecolor())  # i don't know why
+#                         lh.set_edgecolor(lh.get_edgecolor())  # these are needed
+#                         lh.set_alpha(1.0)
                         
         if title:
-            plt.title(title)
+            if self.xfacet or self.yfacet:
+                plt.subplots_adjust(top=0.9)
+            else:
+                plt.subplots_adjust(top=0.94)
+                
+            plt.suptitle(title)
             
-        if xlabel:
-            plt.xlabel(xlabel)
+        if xlabel == "":
+            xlabel = None
             
-        if ylabel:
-            plt.ylabel(ylabel)
+        if ylabel == "":
+            ylabel = None
+            
+        g.set_axis_labels(xlabel, ylabel)
  
         sns.despine(top = despine, 
                     right = despine,
@@ -269,6 +280,9 @@ class BaseView(HasStrictTraits):
                     
     def _grid_plot(self, experiment, grid, xlim, ylim, xscale, yscale, **kwargs):
         raise NotImplementedError("You must override _grid_plot in a derived class")
+    
+    def _update_legend(self, legend):
+        pass  # no-op
         
 class BaseDataView(BaseView):
     """
@@ -606,6 +620,10 @@ class BaseStatisticsView(BaseView):
         Enumerate the named plots we can make from this set of statistics.
         """
         
+        if experiment is None:
+            raise util.CytoflowViewError('experiment',
+                                         "No experiment specified")
+        
         if not self.variable:
             raise util.CytoflowViewError('variable',
                                          "variable not set")
@@ -652,6 +670,10 @@ class BaseStatisticsView(BaseView):
         subsetting, then passes the dataframe to `BaseView.plot`
 
         """
+        
+        if experiment is None:
+            raise util.CytoflowViewError('experiment',
+                                         "No experiment specified")
         
         if not self.variable:
             raise util.CytoflowViewError('variable',
@@ -857,6 +879,11 @@ class Base1DStatisticsView(BaseStatisticsView):
          
         if error_stat is not None:
 
+            if set(stat.index.names) != set(error_stat.index.names):
+                raise util.CytoflowViewError('error_statistic',
+                                             "Data statistic and error statistic "
+                                             "don't have the same index.")
+                
             try:
                 error_stat.index = error_stat.index.reorder_levels(stat.index.names)
                 error_stat.sort_index(inplace = True)
@@ -986,6 +1013,11 @@ class Base2DStatisticsView(BaseStatisticsView):
             x_error_stat = None
             
         if x_error_stat is not None:
+            
+            if set(xstat.index.names) != set(x_error_stat.index.names):
+                raise util.CytoflowViewError('x_error_statistic',
+                                             "X data statistic and error statistic "
+                                             "don't have the same index.")
                
             try:
                 x_error_stat.index = x_error_stat.index.reorder_levels(xstat.index.names)
@@ -995,12 +1027,12 @@ class Base2DStatisticsView(BaseStatisticsView):
             
             if not xstat.index.equals(x_error_stat.index):
                 raise util.CytoflowViewError('x_error_statistic',
-                                             "Data statistic and error statistic "
+                                             "X data statistic and error statistic "
                                              " don't have the same index.")
                
             if xstat.name == x_error_stat.name:
                 raise util.CytoflowViewError('x_error_statistic',
-                                             "Data statistic and error statistic can "
+                                             "X data statistic and error statistic can "
                                              "not have the same name.")
             
         if not self.ystatistic:
@@ -1029,6 +1061,11 @@ class Base2DStatisticsView(BaseStatisticsView):
          
         if y_error_stat is not None:
             
+            if set(ystat.index.names) != set(y_error_stat.index.names):
+                raise util.CytoflowViewError('y_error_statistic',
+                                             "Y data statistic and error statistic "
+                                             "don't have the same index.")
+            
             try:
                 y_error_stat.index = y_error_stat.index.reorder_levels(ystat.index.names)
                 y_error_stat.sort_index(inplace = True)
@@ -1037,7 +1074,7 @@ class Base2DStatisticsView(BaseStatisticsView):
             
             if not ystat.index.equals(y_error_stat.index):
                 raise util.CytoflowViewError('y_error_statistic',
-                                             "Data statistic and error statistic "
+                                             "Y data statistic and error statistic "
                                              " don't have the same index.")
                
             if ystat.name == y_error_stat.name:
@@ -1050,6 +1087,11 @@ class Base2DStatisticsView(BaseStatisticsView):
                                          "X and Y statistics can "
                                          "not have the same name.")
                
+        if set(xstat.index.names) != set(ystat.index.names):
+            raise util.CytoflowViewError('ystatistic',
+                                         "X and Y data statistics "
+                                         "don't have the same index.")
+               
         try:
             ystat.index = ystat.index.reorder_levels(xstat.index.names)
             ystat.sort_index(inplace = True)
@@ -1061,62 +1103,6 @@ class Base2DStatisticsView(BaseStatisticsView):
         xstat.sort_index(inplace = True)
         ystat = ystat.reindex(intersect_idx)
         ystat.sort_index(inplace = True)
-             
-        if self.x_error_statistic[0]:
-            if self.x_error_statistic not in experiment.statistics:
-                raise util.CytoflowViewError('x_error_statistic',
-                                             "X error statistic not in experiment")
-            else:
-                x_error_stat = experiment.statistics[self.x_error_statistic]
-                
-            if set(x_error_stat.index.names) != set(xstat.index.names):
-                raise util.CytoflowViewError('x_error_statistic',
-                                             "X error statistic doesn't have the "
-                                             "same indices as the X statistic")
-            
-            try:
-                x_error_stat.index = x_error_stat.index.reorder_levels(xstat.index.names)
-                x_error_stat.sort_index(inplace = True)
-            except AttributeError:
-                pass
-            
-            x_error_stat = x_error_stat.reindex(intersect_idx)
-            x_error_stat.sort_index(inplace = True)
-            
-            if not x_error_stat.index.equals(xstat.index):
-                raise util.CytoflowViewError('x_error_statistic',
-                                             "X error statistic doesn't have the "
-                                             "same indices as the X statistic")                
-        else:
-            x_error_stat = None
-            
-        if self.y_error_statistic[0]:
-            if self.y_error_statistic not in experiment.statistics:
-                raise util.CytoflowViewError('y_error_statistic',
-                                             "Y error statistic not in experiment")
-            else:
-                y_error_stat = experiment.statistics[self.y_error_statistic]
-                
-            if set(y_error_stat.index.names) != set(ystat.index.names):
-                raise util.CytoflowViewError('y_error_statistic',
-                                             "Y error statistic doesn't have the "
-                                             "same indices as the Y statistic")
-                
-            try:
-                y_error_stat.index = y_error_stat.index.reorder_levels(ystat.index.names)
-                y_error_stat.sort_index(inplace = True)
-            except AttributeError:
-                pass
-            
-            y_error_stat = y_error_stat.reindex(intersect_idx)
-            y_error_stat.sort_index(inplace = True)
-            
-            if not y_error_stat.index.equals(ystat.index):
-                raise util.CytoflowViewError('y_error_statistic',
-                                             "Y error statistic doesn't have the "
-                                             "same values as the Y statistic")   
-        else:
-            y_error_stat = None
             
         data = pd.DataFrame(index = xstat.index)
         data[xstat.name] = xstat

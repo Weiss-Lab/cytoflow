@@ -69,7 +69,7 @@ before computing and applying the gate.
                                     xscale = 'log',
                                     ychannel = 'SSC-A',
                                     yscale = 'log',
-                                    keep = 0.7)
+                                    keep = 0.5)
     density_op.estimate(ex)   
     density_op.default_view().plot(ex)
     ex2 = density_op.apply(ex)
@@ -91,6 +91,7 @@ from cytoflow.operations.density import DensityGateOp, DensityGateView
 from cytoflow.views.i_selectionview import IView
 
 from cytoflowgui.view_plugins.i_view_plugin import ViewHandlerMixin, PluginViewMixin
+from cytoflowgui.view_plugins.density import DensityPlotParams
 from cytoflowgui.op_plugins import IOperationPlugin, OpHandlerMixin, OP_PLUGIN_EXT, shared_op_traits
 from cytoflowgui.subset import ISubset, SubsetListEditor
 from cytoflowgui.color_text_editor import ColorTextEditor
@@ -165,8 +166,12 @@ class DensityGatePluginOp(PluginOpMixin, DensityGateOp):
         return DensityGatePluginView(op = self, **kwargs)
     
     def estimate(self, experiment):
-        super().estimate(experiment, subset = self.subset)
-        self.changed = (Changed.ESTIMATE_RESULT, self)
+        try:
+            super().estimate(experiment, subset = self.subset)
+        except:
+            raise
+        finally:
+            self.changed = (Changed.ESTIMATE_RESULT, self)
     
     def clear_estimate(self):
         self._xscale = self._yscale = None
@@ -225,6 +230,7 @@ class DensityGateViewHandler(ViewHandlerMixin, Controller):
 class DensityGatePluginView(PluginViewMixin, DensityGateView):
     handler_factory = Callable(DensityGateViewHandler)
     op = Instance(IOperation, fixed = True)
+    plot_params = Instance(DensityPlotParams, ())
 #     subset = DelegatesTo('op', transient = True)
 #     by = DelegatesTo('op', status = True)
 #     xchannel = DelegatesTo('op', 'xchannel', transient = True)
@@ -249,9 +255,12 @@ class DensityGatePluginView(PluginViewMixin, DensityGateView):
     
     def plot_wi(self, wi):
         if self.plot_names:
-            self.plot(wi.previous_wi.result, plot_name = self.current_plot)
+            self.plot(wi.previous_wi.result, 
+                      plot_name = self.current_plot,
+                      **self.plot_params.trait_get())
         else:
-            self.plot(wi.previous_wi.result)
+            self.plot(wi.previous_wi.result,
+                      **self.plot_params.trait_get())
         
     def enum_plots_wi(self, wi):
         try:
@@ -263,12 +272,14 @@ class DensityGatePluginView(PluginViewMixin, DensityGateView):
         view = DensityGateView()
         view.copy_traits(self, view.copyable_trait_names())
         view.subset = self.subset
+        plot_params_str = traits_str(self.plot_params)
         
         return dedent("""
-        op_{idx}.default_view({traits}).plot(ex_{idx})
+        op_{idx}.default_view({traits}).plot(ex_{idx}{plot_params})
         """
         .format(traits = traits_str(view),
-                idx = idx))
+                idx = idx,
+                plot_params = ", " + plot_params_str if plot_params_str else ""))
     
 
 @provides(IOperationPlugin)
@@ -305,10 +316,15 @@ def _dump(op):
 def _load(data, version):
     return DensityGatePluginOp(**data)
 
-@camel_registry.dumper(DensityGatePluginView, 'density-gate-view', version = 1)
+@camel_registry.dumper(DensityGatePluginView, 'density-gate-view', version = 2)
 def _dump_view(view):
+    return dict(op = view.op,
+                plot_params = view.plot_params)
+    
+@camel_registry.dumper(DensityGatePluginView, 'density-gate-view', version = 1)
+def _dump_view_v1(view):
     return dict(op = view.op)
 
-@camel_registry.loader('density-gate-view', version = 1)
+@camel_registry.loader('density-gate-view', version = any)
 def _load_view(data, ver):
     return DensityGatePluginView(**data)

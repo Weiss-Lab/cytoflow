@@ -22,6 +22,7 @@ cytoflow.operations.base_op_views
 '''
 
 from warnings import warn
+import collections
 
 from traits.api import (provides, Instance, Property, List, DelegatesTo)
 
@@ -305,7 +306,7 @@ class NullView(BaseDataView):
 class AnnotatingView(BaseDataView):
     """
     A :class:`IView` that plots an underlying data plot, then plots some
-    annotations on top of it.  See :class:`~.GaussianMixture1DView` for an
+    annotations on top of it.  See :class:`~.gaussian.GaussianMixture1DView` for an
     example.  By default, it assumes that the annotations are to be plotted
     in the same color as the view's :attr:`huefacet`, and sets :attr:`huefacet`
     accordingly if the annotation isn't already set to a different facet.
@@ -370,9 +371,9 @@ class AnnotatingView(BaseDataView):
             facets = [x for x in [row_name, col_name, hue_name] if x is not None]
             
             if plot_name is not None:
-                try:
+                if isinstance(plot_name, collections.Iterable) and not isinstance(plot_name, str):
                     plot_name = list(plot_name)
-                except TypeError:
+                else:
                     plot_name = [plot_name]
                     
                 annotation_name = plot_name + facets
@@ -381,10 +382,11 @@ class AnnotatingView(BaseDataView):
                 
             annotation = None
             for group, a in annotations.items():
-                try:
+                if isinstance(group, collections.Iterable) and not isinstance(group, str):
                     g_set = set(group)
-                except TypeError:
+                else:
                     g_set = set([group])
+                    
                 if g_set == set(annotation_name):
                     annotation = a
                     

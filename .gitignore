@@ -9,6 +9,10 @@
 
 .*.sw?
 
+*-checkpoint.ipynb
+*.so
+*.pyd
+
 /.settings/
 
 /build/
@@ -19,11 +23,6 @@
 .classpath
 .project
 .pydevproject
-
-# submodule bits
-docs/examples-basic
-docs/examples-advanced
-examples-advanced
 
 # logicle build bits
 Logicle_wrap.cpp

@@ -102,9 +102,23 @@ class Range2DOp(HasStrictTraits):
     .. plot::
         :context: close-figs
             
-        >>> r.default_view(huefacet = "Dox",
-        ...                xscale = 'log',
-        ...                yscale = 'log').plot(ex)
+        >>> rv = r.default_view(huefacet = "Dox",
+        ...                     xscale = 'log',
+        ...                     yscale = 'log')
+        
+        >>> rv.plot(ex)
+        
+    .. note::
+       If you want to use the interactive default view in a Jupyter notebook,
+       make sure you say ``%matplotlib notebook`` in the first cell 
+       (instead of ``%matplotlib inline`` or similar).  Then call 
+       ``default_view()`` with ``interactive = True``::
+       
+           rv = r.default_view(huefacet = "Dox",
+                               xscale = 'log',
+                               yscale = 'log',
+                               interactive = True)
+           rv.plot(ex)
         
     Apply the gate, and show the result
     
@@ -133,6 +147,8 @@ class Range2DOp(HasStrictTraits):
     ychannel = Str
     ylow = Float
     yhigh = Float
+    
+    _selection_view = Instance('RangeSelection2D', transient = True)
 
     def apply(self, experiment):
         """Applies the threshold to an experiment.
@@ -214,7 +230,9 @@ class Range2DOp(HasStrictTraits):
         return new_experiment
     
     def default_view(self, **kwargs):
-        return RangeSelection2D(op = self, **kwargs)
+        self._selection_view = RangeSelection2D(op = self)
+        self._selection_view.trait_set(**kwargs)
+        return self._selection_view
     
 @provides(ISelectionView)
 class RangeSelection2D(Op2DView, ScatterplotView):
@@ -291,8 +309,9 @@ class RangeSelection2D(Op2DView, ScatterplotView):
             self._box = Rectangle((self.op.xlow, self.op.ylow), 
                                   (self.op.xhigh - self.op.xlow), 
                                   (self.op.yhigh - self.op.ylow), 
-                                  facecolor="grey",
-                                  alpha = 0.2)
+                                  facecolor="none",
+                                  edgecolor = 'blue',
+                                  linewidth = 2)
             self._ax.add_patch(self._box)
             plt.draw()
     
@@ -302,8 +321,9 @@ class RangeSelection2D(Op2DView, ScatterplotView):
             self._selector = RectangleSelector(
                                 self._ax, 
                                 onselect=self._onselect, 
-                                rectprops={'alpha':0.2,
-                                           'color':'grey'},
+                                rectprops=dict(facecolor = 'none',
+                                               edgecolor = 'blue',
+                                               linewidth = 2),
                                 useblit = True)
         else:
             self._selector = None

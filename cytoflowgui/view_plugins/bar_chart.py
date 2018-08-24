@@ -270,6 +270,17 @@ def _dump(view):
                 subset_list = view.subset_list,
                 plot_params = view.plot_params)
     
+@camel_registry.dumper(BarChartPluginView, 'bar-chart', version = 1)
+def _dump_v1(view):
+    return dict(statistic = view.statistic,
+                variable = view.variable,
+                yscale = view.yscale,
+                xfacet = view.xfacet,
+                yfacet = view.yfacet,
+                huefacet = view.huefacet,
+                error_statistic = view.error_statistic,
+                subset_list = view.subset_list)
+    
 @camel_registry.dumper(BarChartPlotParams, 'barchart-params', version = 1)
 def _dump_params(params):
     return dict(
@@ -297,6 +308,9 @@ def _dump_params(params):
 @camel_registry.loader('bar-chart', version = 1)
 def _load_v1(data, version):
     data['scale'] = data.pop('yscale')
+    data['statistic'] = tuple(data['statistic'])
+    data['error_statistic'] = tuple(data['error_statistic'])
+
     return BarChartPluginView(**data)
 
 @camel_registry.loader('bar-chart', version = 2)

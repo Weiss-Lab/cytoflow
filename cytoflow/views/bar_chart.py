@@ -144,16 +144,7 @@ class BarChartView(Base1DStatisticsView):
             
         # limits
         lim = kwargs.pop('lim', None)
-                
-#         # set the scale for each set of axes; can't just call plt.xscale() 
-#         for ax in grid.axes.flatten():
-#             if orient == 'horizontal':
-#                 ax.set_xscale(yscale.name, **yscale.mpl_params)  
-#             elif orient == 'vertical':
-#                 ax.set_yscale(yscale.name, **yscale.mpl_params)
-#             else:
-#                 raise util.CytoflowViewError('orient', "'orient' param must be 'horizontal' or 'vertical'")  
-#                 
+                      
         stat = experiment.statistics[self.statistic]
         map_args = [self.variable, stat.name]
         
@@ -188,9 +179,8 @@ def _barplot(*args, view, stat_name, error_name, orientation, grid, **kwargs):
     together from seaborn v0.7.1.
     """
   
-    data = pd.DataFrame({s.name: s for s in args})
-    
-    categories = util.categorical_order(data[view.variable])
+    data = pd.DataFrame({s.name: s for s in args}).sort_values(view.variable)
+    categories = data[view.variable].unique()
  
     # plot the bars
     width = kwargs.pop('width', 0.8)
@@ -255,17 +245,6 @@ def _barplot(*args, view, stat_name, error_name, orientation, grid, **kwargs):
                            errwidth = errwidth,
                            capsize = capsize)
 
-    # do axes
-#     if view.orientation == "vertical":
-#         xlabel, ylabel = view.variable, stat_name
-#     else:
-#         xlabel, ylabel = stat_name, view.variable
-# 
-#     if xlabel is not None:
-#         ax.set_xlabel(xlabel)
-#     if ylabel is not None:
-#         ax.set_ylabel(ylabel)
-
     if orientation == "vertical":
         ax.set_xticks(np.arange(len(categories)))
         ax.set_xticklabels(categories)
@@ -302,22 +281,19 @@ def _draw_confints(ax, at_group, stat, confints, colors,
                                  ci_lo,
                                  ci_hi,
                                  colors):
-        if orient == "v":
+        if orient == "vertical":
+            if capsize is not None:
+                kws['marker'] = '_'
+                kws['markersize'] = capsize * 2
+                kws['markeredgewidth'] = kws['lw']
             ax.plot([at, at], [lo, hi], color=color, **kws)
-            if capsize is not None:
-                ax.plot([at - capsize / 2, at + capsize / 2],
-                        [lo, lo], color=color, **kws)
-                ax.plot([at - capsize / 2, at + capsize / 2],
-                        [hi, hi], color=color, **kws)
         else:
-            ax.plot([lo, hi], [at, at], color=color, **kws)
             if capsize is not None:
-                ax.plot([lo, lo],
-                        [at - capsize / 2, at + capsize / 2],
-                        color=color, **kws)
-                ax.plot([hi, hi],
-                        [at - capsize / 2, at + capsize / 2],
-                        color=color, **kws)
+                kws['marker'] = '|'
+                kws['markersize'] = capsize * 2
+                kws['markeredgewidth'] = kws['lw']
+            ax.plot([lo, hi], [at, at], color=color, **kws)
+
 
 util.expand_class_attributes(BarChartView)
 util.expand_method_parameters(BarChartView, BarChartView.plot)

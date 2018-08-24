@@ -23,7 +23,7 @@ cytoflow.operations.color_translation
 import math
 
 from traits.api import (HasStrictTraits, Str, File, Dict, Any, Callable,
-                        Instance, Tuple, Bool, Constant, provides)
+                        Instance, Tuple, Bool, Constant, provides, Float)
 import numpy as np
 import matplotlib.pyplot as plt
 import sklearn.mixture
@@ -62,6 +62,18 @@ class ColorTranslationOp(HasStrictTraits):
         transfection), then weight the regression by the probability that the
         the cell is from the top (transfected) distribution.  Make sure you 
         check the diagnostic plots to see that this worked!
+        
+    linear_model : Bool (default = False)
+        Set this to ``True`` to get a scaling that is strictly multiplicative,
+        mirroring the TASBE approach.  Do check the diagnostic plot, though,
+        to see how well (or poorly) your model fits the data.
+        
+    control_conditions : Dict((Str, Str), Dict(Str, Any))
+        Occasionally, you'll need to specify the experimental conditions that
+        the bleedthrough tubes were collected under (to apply the operations in the 
+        history.)  Specify them here.  The key is a tuple of channel names; the 
+        value is a dictionary of the conditions (same as you would specify for a
+        :class:`~.Tube` )
 
         
     Notes
@@ -128,6 +140,8 @@ class ColorTranslationOp(HasStrictTraits):
     controls = Dict(Tuple(Str, Str), File)
     mixture_model = Bool(False)
     linear_model = Bool(False)
+    
+    control_conditions = Dict(Tuple(Str, Str), Dict(Str, Any), {})
 
     # The regression coefficients determined by `estimate()`, used to map 
     # colors between channels.  The keys are tuples of (*from-channel*,
@@ -137,6 +151,8 @@ class ColorTranslationOp(HasStrictTraits):
     # TODO - why can't i make the value List(Float)?
     _coefficients = Dict(Tuple(Str, Str), Any, transient = True)
     _trans_fn = Dict(Tuple(Str, Str), Callable, transient = True)
+    _sample = Dict(Tuple(Str, Str), Any, transient = True)
+    _means = Dict(Tuple(Str, Str), Tuple(Float, Float), transient = True)
 
     def estimate(self, experiment, subset = None): 
         """
@@ -161,6 +177,11 @@ class ColorTranslationOp(HasStrictTraits):
         if not self.controls:
             raise util.CytoflowOpError('controls',
                                        "No controls specified")
+            
+        self._coefficients.clear()
+        self._trans_fn.clear()
+        self._sample.clear()
+        self._means.clear()
 
         tubes = {}
         
@@ -185,16 +206,30 @@ class ColorTranslationOp(HasStrictTraits):
                                            .format(from_channel, to_channel))
                 
             tube_file = self.controls[(from_channel, to_channel)]
+            tube_conditions = self.control_conditions[(from_channel, to_channel)] \
+                                    if (from_channel, to_channel) in self.control_conditions \
+                                    else {}
+            conditions = {k: experiment.data[k].dtype.name for k in tube_conditions.keys()}
             
             if tube_file not in tubes: 
                 # make a little Experiment
                 check_tube(tube_file, experiment)
-                tube_exp = ImportOp(tubes = [Tube(file = tube_file)],
+
+                tube_exp = ImportOp(tubes = [Tube(file = tube_file,
+                                                  conditions = tube_conditions)],
+                                    conditions = conditions,
                                     channels = {experiment.metadata[c]["fcs_name"] : c for c in experiment.channels},
                                     name_metadata = experiment.metadata['name_metadata']).apply()
                 
                 # apply previous operations
                 for op in experiment.history:
+                    if hasattr(op, 'by'):
+                        for by in op.by:
+                            if 'experiment' in experiment.metadata[by]:
+                                raise util.CytoflowOpError('experiment',
+                                                           "Prior to applying this operation, "
+                                                           "you must not apply any operation with 'by' "
+                                                           "set to an experimental condition.")
                     tube_exp = op.apply(tube_exp) 
 
                 # subset the events
@@ -211,7 +246,7 @@ class ColorTranslationOp(HasStrictTraits):
                                                    "Subset string '{0}' returned no events"
                                               .format(subset))
                 
-                tube_data = tube_exp.data                
+                tube_data = tube_exp.data    
 
                 tubes[tube_file] = tube_data
 
@@ -222,6 +257,8 @@ class ColorTranslationOp(HasStrictTraits):
             
             _ = data.reset_index(drop = True, inplace = True)
             
+            self._sample[(from_channel, to_channel)] = data.sample(n = 5000)
+            
             data[from_channel] = np.log10(data[from_channel])
             data[to_channel] = np.log10(data[to_channel])
             
@@ -229,6 +266,9 @@ class ColorTranslationOp(HasStrictTraits):
                 gmm = sklearn.mixture.BayesianGaussianMixture(n_components=2,
                                                               random_state = 1)
                 fit = gmm.fit(data)
+                
+                self._means[(from_channel), (to_channel)] = \
+                    (10 ** fit.means_[0][0], 10 ** fit.means_[1][0])
 
                 # pick the component with the maximum mean
                 idx = 0 if fit.means_[0][0] > fit.means_[1][0] else 1
@@ -337,7 +377,9 @@ class ColorTranslationOp(HasStrictTraits):
             see the diagnostic plots
         """
 
-        return ColorTranslationDiagnostic(op = self, **kwargs)
+        v = ColorTranslationDiagnostic(op = self)
+        v.trait_set(**kwargs)
+        return v
     
 @provides(cytoflow.views.IView)
 class ColorTranslationDiagnostic(HasStrictTraits):
@@ -386,8 +428,6 @@ class ColorTranslationDiagnostic(HasStrictTraits):
             raise util.CytoflowViewError('op',
                                          "Transfer functions aren't set. "
                                          "Did you forget to call estimate()?")
-
-        tubes = {}
         
         translation = {x[0] : x[1] for x in list(self.op.controls.keys())}
         
@@ -396,69 +436,27 @@ class ColorTranslationDiagnostic(HasStrictTraits):
         plt_idx = 0
         
         for from_channel, to_channel in translation.items():
-            
-            if (from_channel, to_channel) not in self.op.controls:
-                raise util.CytoflowViewError('op',
-                                             "Control file for {0} --> {1} not specified"
-                                             .format(from_channel, to_channel))
-            tube_file = self.op.controls[(from_channel, to_channel)]
-            
-            if tube_file not in tubes: 
-                # make a little Experiment
-                try:
-                    check_tube(tube_file, experiment)
-                    tube_exp = ImportOp(tubes = [Tube(file = tube_file)],
-                                        channels = {experiment.metadata[c]["fcs_name"] : c for c in experiment.channels},
-                                        name_metadata = experiment.metadata['name_metadata']).apply()
-                except util.CytoflowOpError as e:
-                    raise util.CytoflowViewError('translation', e.__str__()) from e
-                
-                # apply previous operations
-                for op in experiment.history:
-                    tube_exp = op.apply(tube_exp)
-                    
-                tube_data = tube_exp.data
-
-                # subset the events
-                if self.subset:
-                    try:
-                        tube_exp = tube_exp.query(self.subset)
-                    except Exception as e:
-                        raise util.CytoflowViewError('subset',
-                                                     "Subset string '{0}' isn't valid"
-                                                     .format(self.subset)) from e
-                                    
-                    if len(tube_exp.data) == 0:
-                        raise util.CytoflowViewError('subset',
-                                                     "Subset string '{0}' returned no events"
-                                                     .format(self.subset))
-                
-                tube_data = tube_exp.data                
-
-                tubes[tube_file] = tube_data               
-                
-            from_range = experiment.metadata[from_channel]['range']
-            to_range = experiment.metadata[to_channel]['range']
-            data = tubes[tube_file][[from_channel, to_channel]]
-            data = data[data[from_channel] > 0]
-            data = data[data[to_channel] > 0]
-            _ = data.reset_index(drop = True, inplace = True)
+#                     
+#             from_range = experiment.metadata[from_channel]['range']
+#             to_range = experiment.metadata[to_channel]['range']
+            data = self.op._sample[(from_channel, to_channel)]
+            from_min = data[from_channel].quantile(0.01)
+            from_max = data[from_channel].quantile(0.99)
+            to_min = data[to_channel].quantile(0.01)
+            to_max = data[to_channel].quantile(0.99)
 
             if self.op.mixture_model:    
                 plt.subplot(num_plots, 2, plt_idx * 2 + 2)
                 plt.xscale('log', nonposx='mask')
-                hist_bins = np.logspace(1, math.log(from_range, 2), num = 128, base = 2)
+                hist_bins = np.logspace(1, math.log(data[from_channel].max(), 2), num = 128, base = 2)
                 _ = plt.hist(data[from_channel],
                              bins = hist_bins,
                              histtype = 'stepfilled',
                              antialiased = True)
                 plt.xlabel(from_channel)
-                
-                gmm = sklearn.mixture.GaussianMixture(n_components=2)
-                fit = gmm.fit(np.log10(data[from_channel][:, np.newaxis]))
                     
-                plt.axvline(10 ** fit.means_[0][0], color = 'r')
-                plt.axvline(10 ** fit.means_[1][0], color = 'r')
+                plt.axvline(self.op._means[(from_channel, to_channel)][0], color = 'r')
+                plt.axvline(self.op._means[(from_channel, to_channel)][1], color = 'r')
 
             
             num_cols = 2 if self.op.mixture_model else 1
@@ -467,8 +465,8 @@ class ColorTranslationDiagnostic(HasStrictTraits):
             plt.yscale('log', nonposy = 'mask')
             plt.xlabel(from_channel)
             plt.ylabel(to_channel)
-            plt.xlim(1, from_range)
-            plt.ylim(1, to_range)
+            plt.xlim(from_min, from_max)
+            plt.ylim(to_min, to_max)
             
             kwargs.setdefault('alpha', 0.2)
             kwargs.setdefault('s', 1)
@@ -478,7 +476,7 @@ class ColorTranslationDiagnostic(HasStrictTraits):
                         data[to_channel],
                         **kwargs)          
 
-            xs = np.logspace(1, math.log(from_range, 2), num = 256, base = 2)
+            xs = np.logspace(1, math.log(data[from_channel].max(), 2), num = 256, base = 2)
             trans_fn = self.op._trans_fn[(from_channel, to_channel)]
             plt.plot(xs, trans_fn(xs), "--g")
             

@@ -511,7 +511,9 @@ class GaussianMixture1DOp(HasStrictTraits):
         warn("GaussianMixture1DOp is DEPRECATED.  Please use GaussianMixtureOp.",
              util.CytoflowOpWarning)
         
-        return GaussianMixture1DView(op = self, **kwargs)
+        v = GaussianMixture1DView(op = self)
+        v.trait_set(**kwargs)
+        return v
     
 @provides(IView)
 class GaussianMixture1DView(By1DView, AnnotatingView, HistogramView):
@@ -533,13 +535,27 @@ class GaussianMixture1DView(By1DView, AnnotatingView, HistogramView):
         ----------
         """
         
+        if experiment is None:
+            raise util.CytoflowViewError('experiment', "No experiment specified")
+        
+        if self.op.num_components == 1:
+            annotation_facet = self.op.name + "_1"
+        else:
+            annotation_facet = self.op.name
+        
         view, trait_name = self._strip_trait(self.op.name)
+        
+        if self.scale:
+            scale = self.op._scale
+        else:
+            scale = util.scale_factory(self.scale, experiment, channel = self.channel)
+
     
         super(GaussianMixture1DView, view).plot(experiment,
-                                                annotation_facet = self.op.name,
+                                                annotation_facet = annotation_facet,
                                                 annotation_trait = trait_name,
                                                 annotations = self.op._gmms,
-                                                scale = self.op._scale,
+                                                scale = scale,
                                                 **kwargs)
         
         
@@ -576,7 +592,8 @@ class GaussianMixture1DView(By1DView, AnnotatingView, HistogramView):
                 patch_area += poly_area([scale(p[1]) for p in xy], [p[0] for p in xy])
             
             plt_min, plt_max = plt.gca().get_ylim()
-            y = scale.inverse(np.linspace(scale(plt_min), scale(plt_max), 500))   
+            y = scale.inverse(np.linspace(scale(scale.clip(plt_min)), 
+                                          scale(scale.clip(plt_max)), 500))   
             pdf_scale = patch_area * gmm.weights_[idx]
             mean = gmm.means_[idx][0]
             stdev = np.sqrt(gmm.covariances_[idx][0])
@@ -592,7 +609,8 @@ class GaussianMixture1DView(By1DView, AnnotatingView, HistogramView):
                 patch_area += poly_area([scale(p[0]) for p in xy], [p[1] for p in xy])
             
             plt_min, plt_max = plt.gca().get_xlim()
-            x = scale.inverse(np.linspace(scale(plt_min), scale(plt_max), 500))   
+            x = scale.inverse(np.linspace(scale(scale.clip(plt_min)), 
+                                          scale(scale.clip(plt_max)), 500))   
             pdf_scale = patch_area * gmm.weights_[idx]
             mean = gmm.means_[idx][0]
             stdev = np.sqrt(gmm.covariances_[idx][0])

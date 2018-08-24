@@ -18,7 +18,7 @@
 
 from .util_functions import (cartesian, iqr, geom_mean, geom_sd, geom_sd_range,
                              geom_sem, geom_sem_range, num_hist_bins, sanitize_identifier, 
-                             categorical_order, random_string, is_numeric, cov2corr)
+                             random_string, is_numeric, cov2corr)
 
 from .algorithms import ci
 from .cytoflow_errors import CytoflowError, CytoflowOpError, CytoflowViewError
@@ -29,7 +29,7 @@ from .custom_traits import (PositiveInt, PositiveCInt, PositiveFloat,
                             PositiveCFloat, ScaleEnum, Deprecated, Removed, 
                             FloatOrNone, CFloatOrNone, IntOrNone, CIntOrNone)
 
-from .matplotlib_widgets import PolygonSelector
+from .matplotlib_widgets import PolygonSelector, SpanSelector, Cursor
 
 from .docstring import expand_class_attributes, expand_method_parameters
 

@@ -22,19 +22,19 @@ Created on Feb 11, 2015
 @author: brian
 """
 
-# from traits.etsconfig.api import ETSConfig
-# ETSConfig.toolkit = 'qt4'
+import os.path, webbrowser, pathlib
 
-import os.path, webbrowser
+import yaml.parser
 
 from traits.api import Instance, List, on_trait_change, Unicode
 from pyface.tasks.api import Task, TaskLayout, PaneItem, VSplitter
 from pyface.tasks.action.api import SMenu, SMenuBar, SToolBar, TaskAction, TaskToggleGroup
-from pyface.api import FileDialog, ImageResource, AboutDialog, information, confirm, OK, YES, NO, ConfirmationDialog
+from pyface.api import (FileDialog, ImageResource, AboutDialog, information, 
+                        confirm, OK, YES, NO, ConfirmationDialog, warning,
+                        error)
 from envisage.api import Plugin, ExtensionPoint, contributes_to
 from envisage.ui.tasks.api import TaskFactory
 
-# from cytoflowgui.flow_task_pane import FlowTaskPane
 from cytoflowgui.workflow_pane import WorkflowDockPane
 from cytoflowgui.view_pane import ViewDockPane, PlotParamsPane
 from cytoflowgui.help_pane import HelpDockPane
@@ -89,7 +89,6 @@ class FlowTask(Task):
 #                                          accelerator='Ctrl+P'),
                               id='File', name='&File'),
                         SMenu(TaskToggleGroup(),
-#                               TaskWindowToggleGroup(),
                               id = 'View', name = '&View'),
                         SMenu(TaskAction(name = 'Report a problem....',
                                          method = 'on_problem'),
@@ -116,7 +115,7 @@ class FlowTask(Task):
                            TaskAction(method='on_notebook',
                                        name='Notebook',
                                        tooltip="Export to an Jupyter notebook...",
-                                       image=ImageResource('ipython')),
+                                       image=ImageResource('jupyter')),
                            TaskAction(method = "on_calibrate",
                                       name = "Calibrate FCS...",
                                       tooltip = "Calibrate FCS files",
@@ -124,16 +123,20 @@ class FlowTask(Task):
                            TaskAction(method = 'on_problem',
                                       name = "Report a bug...",
                                       tooltib = "Report a bug",
-                                      image = ImageResource('bug')),
+                                      image = ImageResource('bug')))]
 #                            TaskAction(method='on_prefs',
 #                                       name = "Prefs",
 #                                       tooltip='Preferences',
 #                                       image=ImageResource('prefs')),
-                           image_size = (32, 32))]
     
     # the file to save to if the user clicks "save" and has already clicked
     # "open" or "save as".
     filename = Unicode
+        
+    def initialized(self):
+        if self.filename:
+            self.open_file(self.filename)
+
         
     def activated(self):
         
@@ -145,55 +148,31 @@ class FlowTask(Task):
             return
         
         # else, set up a new workflow
-        
         # add the import op
-        self.add_operation(ImportPlugin().id) 
-        self.model.selected = self.model.workflow[0]
-        
-        # if we're debugging, add a few data bits
-        if self.model.debug:
-            from cytoflow import Tube
-                        
-            import_op = self.model.workflow[0].operation
-            import_op.conditions = {"Dox" : "float", "Well" : "category"}
-         
-            tube1 = Tube(file = "../cytoflow/tests/data/Plate01/CFP_Well_A4.fcs",
-                         conditions = {"Dox" : 0.0, "Well" : 'A'})
-         
-            tube2 = Tube(file = "../cytoflow/tests/data/Plate01/RFP_Well_A3.fcs",
-                         conditions = {"Dox" : 10.0, "Well" : 'A'})
-             
-            tube3 = Tube(file = "../cytoflow/tests/data/Plate01/CFP_Well_B4.fcs",
-                         conditions = {"Dox" : 0.0, "Well" : 'B'})
-         
-            tube4 = Tube(file = "../cytoflow/tests/data/Plate01/RFP_Well_A6.fcs",
-                         conditions = {"Dox" : 10.0, "Well" : 'B'})
-         
-            import_op.tubes = [tube1, tube2, tube3, tube4]
-            
-#             from cytoflowgui.op_plugins import ChannelStatisticPlugin
-
-#             self.add_operation(ChannelStatisticPlugin().id)
-#             stat_op = self.model.workflow[1].operation
-#             stat_op.name = "Test"
-#             stat_op.channel = "Y2-A"
-#             stat_op.statistic_name = "Geom.Mean"
-#             stat_op.by = ["Dox", "Well"]
-#             self.model.selected = self.model.workflow[1]
+        if not self.model.workflow:
+            self.add_operation(ImportPlugin().id) 
+            self.model.selected = self.model.workflow[0]
                     
         self.model.modified = False
     
     def _default_layout_default(self):
-        return TaskLayout(left = VSplitter(PaneItem("edu.mit.synbio.cytoflowgui.workflow_pane"),
-                                           PaneItem("edu.mit.synbio.cytoflowgui.help_pane")),
-                          right = VSplitter(PaneItem("edu.mit.synbio.cytoflowgui.view_traits_pane"),
-                                            PaneItem("edu.mit.synbio.cytoflowgui.params_pane")),
+        return TaskLayout(left = VSplitter(PaneItem("edu.mit.synbio.cytoflowgui.workflow_pane", width = 350),
+                                           PaneItem("edu.mit.synbio.cytoflowgui.help_pane", width = 350, height = 350)),
+                          right = VSplitter(PaneItem("edu.mit.synbio.cytoflowgui.view_traits_pane", width = 350),
+                                            PaneItem("edu.mit.synbio.cytoflowgui.params_pane", width = 350, height = 350)),
                           top_left_corner = 'left',
                           bottom_left_corner = 'left',
                           top_right_corner = 'right',
                           bottom_right_corner = 'right')
      
-    def create_central_pane(self):       
+    def create_central_pane(self):   
+        # set the toolbar image size
+        # this isn't really the right place for this, but it's the only
+        # place control passes back to user code before the toolbar
+        # is created.
+        
+        dpi = self.window.control.physicalDpiX()
+        self.tool_bars[0].image_size = (int(0.4 * dpi), int(0.4 * dpi))
         return self.application.plot_pane
      
     def create_dock_panes(self):
@@ -263,7 +242,18 @@ class FlowTask(Task):
 
     def open_file(self, path):
         
-        new_workflow = load_yaml(path)
+        try:
+            new_workflow = load_yaml(path)
+        except yaml.parser.ParserError as e:
+            error(None,
+                  "Parser error loading {} -- is it a Cytoflow file?\n\n{}"
+                  .format(path, str(e)))
+            return
+        except Exception as e:
+            error(None,
+                  "{} loading {}: {}"
+                  .format(e.__class__.__name__, path, str(e)))
+            return
         
         # a few things to take care of when reloading
         for wi_idx, wi in enumerate(new_workflow):
@@ -281,6 +271,50 @@ class FlowTask(Task):
             if wi_idx < len(new_workflow) - 1:
                 wi.next_wi = new_workflow[wi_idx + 1]
 
+        # check that the FCS files are all there
+        
+        wi = new_workflow[0]
+        assert(wi.operation.id == "edu.mit.synbio.cytoflow.operations.import")
+        missing_tubes = 0
+        for tube in wi.operation.tubes:
+            file = pathlib.Path(tube.file)
+            if not file.exists():
+                missing_tubes += 1
+                
+        if missing_tubes == len(wi.operation.tubes):
+            warning(self.window.control,
+                    "Cytoflow couldn't find any of the FCS files from that "
+                    "workflow.  If they've been moved, please open one FCS "
+                    "file to show Cytoflow where they've been moved to.")
+            
+            dialog = FileDialog(parent = self.window.control, 
+                                action = 'open',
+                                wildcard = (FileDialog.create_wildcard("FCS files", "*.fcs *.lmd")))  # @UndefinedVariable
+            
+            if dialog.open() == OK:
+                # find the "best" file match -- ie, the one with the longest
+                # tail match
+                fcs_path = pathlib.Path(dialog.path).parts
+                best_path_len = -1
+                                
+                for tube in wi.operation.tubes:
+                    tube_path = pathlib.Path(tube.file).parts
+                    
+                    for i in range(len(fcs_path)):
+                        if list(reversed(fcs_path))[:i] == list(reversed(tube_path))[:i] and i > best_path_len:
+                            best_path_len = i
+                            
+                if best_path_len >= 0:
+                    for tube in wi.operation.tubes:
+                        tube_path = pathlib.Path(tube.file).parts
+                        new_path = fcs_path[:-1 * best_path_len] + tube_path[-1 * best_path_len :]
+                        tube.file = str(pathlib.Path(*new_path))
+                        
+        elif missing_tubes > 0:
+            warning(self.window.control,
+                    "Cytoflow couldn't find some of the FCS files from that "
+                    "workflow.  You'll need to re-load them from the Import "
+                    "operation.")
 
         # replace the current workflow with the one we just loaded
         
@@ -297,6 +331,13 @@ class FlowTask(Task):
             
         for wi in self.model.workflow:
             wi.lock.release()
+            
+        ret = confirm(parent = None,
+                      message = "Do you want to execute the workflow now?",
+                      title = "Run workflow?")
+        
+        if ret == YES:
+            self.model.run_all()
 
         
     def on_save(self):
@@ -345,11 +386,11 @@ class FlowTask(Task):
         Shows a dialog to export the workflow to an Jupyter notebook
         """
 
-        dialog = FileDialog(parent = self.window.control,
-                            action = 'save as',
-                            default_suffix = "ipynb",
-                            wildcard = (FileDialog.create_wildcard("Jupyter notebook", "*.ipynb") + ';' + #@UndefinedVariable  
-                                        FileDialog.create_wildcard("All files", "*")))  # @UndefinedVariable
+        dialog = DefaultFileDialog(parent = self.window.control,
+                                   action = 'save as',
+                                   default_suffix = "ipynb",
+                                   wildcard = (FileDialog.create_wildcard("Jupyter notebook", "*.ipynb") + ';' + #@UndefinedVariable  
+                                               FileDialog.create_wildcard("All files", "*")))  # @UndefinedVariable
         if dialog.open() == OK:
             save_notebook(self.model.workflow, dialog.path)
 
@@ -473,6 +514,7 @@ DEBUG LOG: {1}
         
         text.extend(["Icons from the <a href=http://tango.freedesktop.org>Tango Desktop Project</a>",
                 "<a href=https://thenounproject.com/search/?q=setup&i=14287>Settings icon</a> by Paulo Sa Ferreira from <a href=https://thenounproject.com>The Noun Project</a>",
+                "<a href=https://thenounproject.com/search/?q=processing&i=849831>Processing icon</a> by Gregor Cresnar from <a href=https://thenounproject.com>The Noun Project</a>",
                 "<a href=http://www.freepik.com/free-photos-vectors/background>App icon from Starline - Freepik.com</a>",
                 "Cuvette image from Wikimedia Commons user <a href=http://commons.wikimedia.org/wiki/File:Hellma_Large_cone_cytometry_cell.JPG>HellmaUSA</a>"])
         
@@ -588,4 +630,5 @@ class FlowTaskPlugin(Plugin):
                                                            op_plugins = self.op_plugins,
                                                            view_plugins = self.view_plugins,
                                                            model = self.application.model,
+                                                           filename = self.application.filename,
                                                            **x))]

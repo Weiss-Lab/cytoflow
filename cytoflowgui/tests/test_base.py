@@ -23,9 +23,9 @@ class WorkflowTest(unittest.TestCase):
     
     def setUp(self):
         
-        def remote_main(parent_workflow_conn, parent_mpl_conn, log_q, debug_level, running_event):
+        def remote_main(parent_workflow_conn, parent_mpl_conn, log_q, running_event):
             running_event.set()
-            RemoteWorkflow(debug_level = debug_level).run(parent_workflow_conn, parent_mpl_conn, log_q)
+            RemoteWorkflow().run(parent_workflow_conn, parent_mpl_conn, log_q)
         
         # communications channels
         parent_workflow_conn, child_workflow_conn = multiprocessing.Pipe()  
@@ -38,7 +38,6 @@ class WorkflowTest(unittest.TestCase):
                                                  args = [parent_workflow_conn,
                                                          parent_mpl_conn,
                                                          log_q,
-                                                         logging.getLogger().getEffectiveLevel(),
                                                          running_event])
         
         remote_process.daemon = True
@@ -89,7 +88,8 @@ class ImportedDataTest(WorkflowTest):
         wi = WorkflowItem(operation = op,
                           view_error = "Not yet plotted") 
         self.workflow.workflow.append(wi)
-        self.assertTrue(wait_for(wi, 'status', lambda v: v == 'valid', 5))
+        op.do_estimate = True
+        self.assertTrue(wait_for(wi, 'status', lambda v: v == 'valid', 30))
         self.assertTrue(self.workflow.remote_eval("self.workflow[0].result is not None"))
 
 
@@ -112,6 +112,7 @@ class TasbeTest(WorkflowTest):
         wi = WorkflowItem(operation = op,
                           view_error = "Not yet plotted") 
         self.workflow.workflow.append(wi)
-        self.assertTrue(wait_for(wi, 'status', lambda v: v == 'valid', 5))
+        op.do_estimate = True
+        self.assertTrue(wait_for(wi, 'status', lambda v: v == 'valid', 30))
         self.assertTrue(self.workflow.remote_eval("self.workflow[0].result is not None"))
 

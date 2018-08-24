@@ -22,14 +22,10 @@ Created on Mar 5, 2018
 @author: brian
 '''
 
-import os
 import unittest
-
-import matplotlib
-matplotlib.use('Agg')
-
 import cytoflow as flow
-from cytoflow.tests.test_base import ImportedDataTest
+
+from test_base import ImportedDataTest  # @UnresolvedImport
 
 class TestKde1D(ImportedDataTest):
 
@@ -136,11 +132,11 @@ class TestKde1D(ImportedDataTest):
         self.view.plot(self.ex, gridsize = 50)
         
     def testKernel(self):
-        for k in ['gau', 'biw', 'cos', 'epa', 'tri', 'triw', 'uni']:
+        for k in ['gaussian','tophat','epanechnikov','exponential','linear','cosine']:
             self.view.plot(self.ex, kernel = k)
             
     def testBandwidth(self):
-        for bw in ['scott', 'silverman', 'normal_reference', 1, 0.1, 0.01]:
+        for bw in ['scott', 'silverman', 1.0, 0.1, 0.01]:
             self.view.plot(self.ex, bw = bw)
 
         
